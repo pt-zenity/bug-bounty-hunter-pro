@@ -1739,16 +1739,29 @@ def generate_poc_report(target, findings):
     for f in findings:
         sev = f.get("severity","INFO")
         counts[sev] = counts.get(sev,0)+1
-        report_findings.append({
-            "id": f"FIND-{len(report_findings)+1:03d}",
-            "type": f.get("type","Unknown"),
-            "severity": sev,
+        entry = {
+            "id":          f"FIND-{len(report_findings)+1:03d}",
+            "type":        f.get("type","Unknown"),
+            "severity":    sev,
             "description": f.get("description",""),
-            "affected": f.get("url", f.get("path", target)),
-            "poc": f.get("poc",""),
+            "affected":    f.get("url", f.get("path", f.get("affected", target))),
+            "poc":         f.get("poc",""),
             "remediation": f.get("remediation",""),
-            "cvss": quick_cvss(f)
-        })
+            "cvss":        quick_cvss(f),
+            # preserve extra raw fields so the UI can display them
+            "source":      f.get("source",""),
+            "header":      f.get("header",""),
+            "value":       f.get("value",""),
+            "tags":        f.get("tags", [f.get("header")] if f.get("header") else []),
+            "references":  f.get("references", f.get("refs", [])),
+            "template_id": f.get("template_id", f.get("template","")),
+            "curl_cmd":    f.get("curl_cmd", f.get("curl","")),
+            "name":        f.get("name",""),
+            "port":        f.get("port",""),
+        }
+        # remove empty keys to keep JSON clean
+        entry = {k: v for k, v in entry.items() if v not in ("", [], None)}
+        report_findings.append(entry)
     sev_o = {"CRITICAL":0,"HIGH":1,"MEDIUM":2,"LOW":3,"INFO":4}
     report_findings.sort(key=lambda x: sev_o.get(x["severity"],5))
     c = counts
