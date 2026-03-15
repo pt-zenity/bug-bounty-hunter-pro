@@ -418,30 +418,64 @@ function renderScanExportBar(scanId) {
         progressCard.parentNode.insertBefore(bar, progressCard.nextSibling);
     }
     bar.innerHTML = `
-        <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:10px;padding:12px 16px;margin-top:12px;display:flex;align-items:center;flex-wrap:wrap;gap:10px">
-            <i class="fas fa-check-circle" style="color:#10b981;font-size:16px"></i>
-            <span style="font-size:13px;color:#10b981;font-weight:600">Scan Complete!</span>
-            <span style="font-size:12px;color:var(--text-muted)">Download report:</span>
-            <button onclick="downloadExport('${scanId}','txt')"
-                style="padding:6px 14px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);border-radius:6px;color:#818cf8;font-size:12px;cursor:pointer;font-weight:600">
-                <i class="fas fa-file-alt"></i> .TXT
-            </button>
-            <button onclick="downloadExport('${scanId}','html')"
-                style="padding:6px 14px;background:rgba(6,182,212,0.15);border:1px solid rgba(6,182,212,0.3);border-radius:6px;color:#06b6d4;font-size:12px;cursor:pointer;font-weight:600">
-                <i class="fas fa-file-code"></i> .HTML
-            </button>
-            <button onclick="downloadExport('${scanId}','pdf')"
-                style="padding:6px 14px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.3);border-radius:6px;color:#ef4444;font-size:12px;cursor:pointer;font-weight:600">
-                <i class="fas fa-file-pdf"></i> .PDF
-            </button>
-            <button onclick="exportScanJson('${scanId}')"
-                style="padding:6px 14px;background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.3);border-radius:6px;color:#f59e0b;font-size:12px;cursor:pointer;font-weight:600">
-                <i class="fas fa-code"></i> .JSON
-            </button>
-            <button onclick="exportScanMarkdown('${scanId}')"
-                style="padding:6px 14px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:var(--text-secondary);font-size:12px;cursor:pointer;font-weight:600">
-                <i class="fas fa-hashtag"></i> .MD
-            </button>
+        <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:10px;padding:14px 18px;margin-top:12px">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+                <i class="fas fa-check-circle" style="color:#10b981;font-size:16px"></i>
+                <span style="font-size:13px;color:#10b981;font-weight:700">Scan Complete!</span>
+                <span style="font-size:11px;color:var(--text-muted)">— Download your report:</span>
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px">
+                <a href="${API_BASE}/scan/${scanId}/export?format=txt"
+                   title="Download Plain Text report"
+                   style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;
+                          background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.35);
+                          border-radius:7px;color:#818cf8;font-size:12px;font-weight:700;
+                          text-decoration:none;cursor:pointer"
+                   onclick="event.preventDefault(); downloadExport('${scanId}','txt')">
+                    <i class="fas fa-file-alt"></i> .TXT
+                    <span style="font-size:10px;opacity:0.7">Plain Text</span>
+                </a>
+                <a href="${API_BASE}/scan/${scanId}/export?format=html"
+                   title="Download HTML report"
+                   style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;
+                          background:rgba(6,182,212,0.15);border:1px solid rgba(6,182,212,0.35);
+                          border-radius:7px;color:#06b6d4;font-size:12px;font-weight:700;
+                          text-decoration:none;cursor:pointer"
+                   onclick="event.preventDefault(); downloadExport('${scanId}','html')">
+                    <i class="fas fa-file-code"></i> .HTML
+                    <span style="font-size:10px;opacity:0.7">Web Report</span>
+                </a>
+                <a href="${API_BASE}/scan/${scanId}/export?format=pdf"
+                   title="Download PDF report"
+                   style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;
+                          background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.35);
+                          border-radius:7px;color:#ef4444;font-size:12px;font-weight:700;
+                          text-decoration:none;cursor:pointer"
+                   onclick="event.preventDefault(); downloadExport('${scanId}','pdf')">
+                    <i class="fas fa-file-pdf"></i> .PDF
+                    <span style="font-size:10px;opacity:0.7">PDF Report</span>
+                </a>
+                <a href="${API_BASE}/scan/${scanId}/report"
+                   title="Download JSON report"
+                   style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;
+                          background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.35);
+                          border-radius:7px;color:#f59e0b;font-size:12px;font-weight:700;
+                          text-decoration:none;cursor:pointer"
+                   onclick="event.preventDefault(); exportScanJson('${scanId}')">
+                    <i class="fas fa-code"></i> .JSON
+                    <span style="font-size:10px;opacity:0.7">Raw Data</span>
+                </a>
+                <a href="#"
+                   title="Download Markdown report"
+                   style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;
+                          background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);
+                          border-radius:7px;color:var(--text-secondary);font-size:12px;font-weight:700;
+                          text-decoration:none;cursor:pointer"
+                   onclick="event.preventDefault(); exportScanMarkdown('${scanId}')">
+                    <i class="fas fa-hashtag"></i> .MD
+                    <span style="font-size:10px;opacity:0.7">Markdown</span>
+                </a>
+            </div>
         </div>`;
 }
 
@@ -2055,6 +2089,15 @@ async function loadReports() {
     const container = document.getElementById('reportsContent');
     if (!container) return;
 
+    // Always fetch fresh list from API so reports show after page reload
+    try {
+        const listResp = await fetch(`${API_BASE}/scan/list`);
+        if (listResp.ok) {
+            const freshScans = await listResp.json();
+            freshScans.forEach(s => { allScans[s.id] = s; });
+        }
+    } catch(e) { /* use cached allScans if fetch fails */ }
+
     const scans = Object.values(allScans).filter(s => s.status === 'completed');
 
     if (scans.length === 0) {
@@ -2075,73 +2118,217 @@ async function loadReports() {
 
         if (!report) return '';
 
-        const c = report.severity_counts || {};
-        const hasCritical = c.CRITICAL > 0, hasHigh = c.HIGH > 0;
+        const c   = report.severity_counts || {};
+        const sid = escapeHtml(scan.id);
+        const total = (c.CRITICAL||0)+(c.HIGH||0)+(c.MEDIUM||0)+(c.LOW||0)+(c.INFO||0);
+
+        // Direct href links → browser handles download natively (no JS needed)
+        const linkTxt  = `${API_BASE}/scan/${scan.id}/export?format=txt`;
+        const linkHtml = `${API_BASE}/scan/${scan.id}/export?format=html`;
+        const linkPdf  = `${API_BASE}/scan/${scan.id}/export?format=pdf`;
+        const target   = escapeHtml(report.target || scan.target);
+        const slug     = (report.target||scan.target||'report').replace(/[^a-zA-Z0-9._-]/g,'_').slice(0,40);
+        const datePart = (report.date||'').replace(/[: ]/g,'').slice(0,15);
 
         return `
-        <div class="report-card" style="margin-bottom:16px">
-            <div class="report-header">
+        <div class="report-card" style="margin-bottom:18px;border-radius:12px;overflow:hidden;border:1px solid rgba(255,255,255,0.07)">
+
+            <!-- Card header -->
+            <div style="padding:14px 18px;background:rgba(255,255,255,0.03);border-bottom:1px solid rgba(255,255,255,0.06);display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px">
                 <div>
-                    <div class="report-target">${escapeHtml(report.target || scan.target)}</div>
-                    <div class="report-date" style="font-size:11px;color:var(--text-muted)">${report.date || formatDate(scan.started)}</div>
+                    <div style="font-size:14px;font-weight:700;color:var(--text-primary)">${target}</div>
+                    <div style="font-size:11px;color:var(--text-muted);margin-top:2px">
+                        <i class="fas fa-clock" style="margin-right:4px"></i>${report.date || formatDate(scan.started)}
+                        &nbsp;·&nbsp;Scan ID: <code style="font-size:10px;color:var(--accent)">${sid}</code>
+                    </div>
                 </div>
-                <div class="report-stats" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
-                    ${c.CRITICAL ? `<span class="sev-badge CRITICAL">🔴 ${c.CRITICAL}</span>` : ''}
-                    ${c.HIGH     ? `<span class="sev-badge HIGH">🟠 ${c.HIGH}</span>`         : ''}
-                    ${c.MEDIUM   ? `<span class="sev-badge MEDIUM">🟡 ${c.MEDIUM}</span>`     : ''}
-                    ${c.LOW      ? `<span class="sev-badge LOW">🟢 ${c.LOW}</span>`           : ''}
-                    ${c.INFO     ? `<span class="sev-badge INFO">🔵 ${c.INFO}</span>`         : ''}
+                <div style="display:flex;flex-wrap:wrap;gap:5px;align-items:center">
+                    ${c.CRITICAL ? `<span class="sev-badge CRITICAL">🔴 ${c.CRITICAL} CRIT</span>` : ''}
+                    ${c.HIGH     ? `<span class="sev-badge HIGH">🟠 ${c.HIGH} HIGH</span>`          : ''}
+                    ${c.MEDIUM   ? `<span class="sev-badge MEDIUM">🟡 ${c.MEDIUM} MED</span>`       : ''}
+                    ${c.LOW      ? `<span class="sev-badge LOW">🟢 ${c.LOW} LOW</span>`             : ''}
+                    ${c.INFO     ? `<span class="sev-badge INFO">🔵 ${c.INFO} INFO</span>`          : ''}
                 </div>
             </div>
 
-            <p style="font-size:12px;color:var(--text-secondary);margin:10px 0 12px;line-height:1.6">
+            <!-- Executive summary -->
+            <div style="padding:12px 18px;font-size:12px;color:var(--text-secondary);line-height:1.7;border-bottom:1px solid rgba(255,255,255,0.04)">
                 ${escapeHtml(report.executive_summary || '')}
-            </p>
+            </div>
 
-            <!-- Export Buttons -->
-            <div style="display:flex;flex-wrap:wrap;gap:7px;margin-bottom:14px;padding:10px 12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:8px;align-items:center">
-                <span style="font-size:11px;color:var(--text-muted);margin-right:4px"><i class="fas fa-download"></i> Export:</span>
-                <button class="btn btn-sm" onclick="downloadExport('${escapeHtml(scan.id)}','txt')"
-                    style="font-size:11px;padding:5px 12px;background:rgba(99,102,241,0.1);border-color:rgba(99,102,241,0.3);color:#818cf8">
-                    <i class="fas fa-file-alt"></i> .TXT
-                </button>
-                <button class="btn btn-sm" onclick="downloadExport('${escapeHtml(scan.id)}','html')"
-                    style="font-size:11px;padding:5px 12px;background:rgba(6,182,212,0.1);border-color:rgba(6,182,212,0.3);color:#06b6d4">
-                    <i class="fas fa-file-code"></i> .HTML
-                </button>
-                <button class="btn btn-sm" onclick="downloadExport('${escapeHtml(scan.id)}','pdf')"
-                    style="font-size:11px;padding:5px 12px;background:rgba(239,68,68,0.1);border-color:rgba(239,68,68,0.3);color:#ef4444">
-                    <i class="fas fa-file-pdf"></i> .PDF
-                </button>
-                <span style="margin-left:auto;font-size:10px;color:var(--text-muted)">
-                    ${(c.CRITICAL||0)+(c.HIGH||0)+(c.MEDIUM||0)+(c.LOW||0)+(c.INFO||0)} finding(s) total
-                </span>
+            <!-- ─── DOWNLOAD LINKS ─── -->
+            <div style="padding:14px 18px;background:rgba(0,0,0,0.15);border-bottom:1px solid rgba(255,255,255,0.05)">
+                <div style="font-size:11px;font-weight:700;color:var(--text-muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px">
+                    <i class="fas fa-download" style="margin-right:6px"></i>Download Report
+                </div>
+                <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+
+                    <!-- TXT link -->
+                    <a href="${linkTxt}"
+                       download="bbhpro_${slug}_${datePart}.txt"
+                       title="Download plain-text report"
+                       style="display:inline-flex;align-items:center;gap:7px;padding:9px 16px;
+                              background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.3);
+                              border-radius:8px;color:#818cf8;font-size:12px;font-weight:600;
+                              text-decoration:none;transition:all 0.2s"
+                       onmouseover="this.style.background='rgba(99,102,241,0.22)'"
+                       onmouseout="this.style.background='rgba(99,102,241,0.12)'">
+                        <i class="fas fa-file-alt" style="font-size:14px"></i>
+                        <span>.TXT</span>
+                        <span style="font-size:10px;opacity:0.7">Plain Text</span>
+                    </a>
+
+                    <!-- HTML link -->
+                    <a href="${linkHtml}"
+                       download="bbhpro_${slug}_${datePart}.html"
+                       title="Download HTML report"
+                       style="display:inline-flex;align-items:center;gap:7px;padding:9px 16px;
+                              background:rgba(6,182,212,0.12);border:1px solid rgba(6,182,212,0.3);
+                              border-radius:8px;color:#06b6d4;font-size:12px;font-weight:600;
+                              text-decoration:none;transition:all 0.2s"
+                       onmouseover="this.style.background='rgba(6,182,212,0.22)'"
+                       onmouseout="this.style.background='rgba(6,182,212,0.12)'">
+                        <i class="fas fa-file-code" style="font-size:14px"></i>
+                        <span>.HTML</span>
+                        <span style="font-size:10px;opacity:0.7">Web Report</span>
+                    </a>
+
+                    <!-- PDF link -->
+                    <a href="${linkPdf}"
+                       download="bbhpro_${slug}_${datePart}.pdf"
+                       title="Download PDF report"
+                       style="display:inline-flex;align-items:center;gap:7px;padding:9px 16px;
+                              background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.3);
+                              border-radius:8px;color:#ef4444;font-size:12px;font-weight:600;
+                              text-decoration:none;transition:all 0.2s"
+                       onmouseover="this.style.background='rgba(239,68,68,0.22)'"
+                       onmouseout="this.style.background='rgba(239,68,68,0.12)'">
+                        <i class="fas fa-file-pdf" style="font-size:14px"></i>
+                        <span>.PDF</span>
+                        <span style="font-size:10px;opacity:0.7">PDF Report</span>
+                    </a>
+
+                    <!-- JSON link -->
+                    <a href="${API_BASE}/scan/${scan.id}/report"
+                       download="bbhpro_${slug}_${datePart}.json"
+                       title="Download raw JSON report"
+                       style="display:inline-flex;align-items:center;gap:7px;padding:9px 16px;
+                              background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.3);
+                              border-radius:8px;color:#f59e0b;font-size:12px;font-weight:600;
+                              text-decoration:none;transition:all 0.2s"
+                       onmouseover="this.style.background='rgba(245,158,11,0.22)'"
+                       onmouseout="this.style.background='rgba(245,158,11,0.12)'">
+                        <i class="fas fa-code" style="font-size:14px"></i>
+                        <span>.JSON</span>
+                        <span style="font-size:10px;opacity:0.7">Raw Data</span>
+                    </a>
+
+                    <span style="margin-left:auto;font-size:11px;color:var(--text-muted)">
+                        ${total} finding${total!==1?'s':''} total
+                    </span>
+                </div>
             </div>
 
             <!-- Top Findings Preview -->
-            ${(report.findings || []).slice(0, 5).map(f => `
-                <div class="report-finding-item" style="margin-bottom:8px">
-                    <div class="report-finding-header" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                        <span class="sev-badge ${escapeHtml(f.severity)}">${escapeHtml(f.severity)}</span>
-                        <span class="report-finding-id" style="font-size:10px;color:var(--text-muted)">${escapeHtml(f.id||'')}</span>
-                        <span class="report-finding-title" style="font-size:12px;font-weight:600">${escapeHtml(f.type || 'Finding')}</span>
-                        <span style="font-size:10px;color:var(--text-muted);margin-left:auto">CVSS ${escapeHtml(String(f.cvss?.score||'N/A'))}</span>
-                    </div>
-                    <div class="report-finding-desc" style="font-size:12px;color:var(--text-secondary);margin-top:4px">${escapeHtml(f.description || '')}</div>
-                    ${f.poc         ? `<div class="report-finding-poc" style="font-size:11px">${escapeHtml(f.poc)}</div>` : ''}
-                    ${f.remediation ? `<div class="report-finding-rem" style="font-size:11px">${escapeHtml(f.remediation)}</div>` : ''}
-                </div>`).join('') ||
-                '<div style="color:var(--text-muted);font-size:12px;padding:8px 0">No significant findings.</div>'
-            }
-            ${(report.findings||[]).length > 5 ? `
-                <div style="font-size:11px;color:var(--text-muted);text-align:center;margin-top:6px">
-                    … and ${(report.findings.length-5)} more finding(s). Export to see all.
-                </div>` : ''}
+            <div style="padding:14px 18px">
+                ${(report.findings || []).length > 0
+                    ? `<div style="font-size:11px;font-weight:700;color:var(--text-muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px">
+                           <i class="fas fa-bug" style="margin-right:6px"></i>Top Findings
+                       </div>
+                       ${(report.findings||[]).slice(0,5).map(f => `
+                           <div class="report-finding-item" style="margin-bottom:8px">
+                               <div class="report-finding-header" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                                   <span class="sev-badge ${escapeHtml(f.severity)}">${escapeHtml(f.severity)}</span>
+                                   <span style="font-size:10px;color:var(--text-muted)">${escapeHtml(f.id||'')}</span>
+                                   <span style="font-size:12px;font-weight:600;color:var(--text-primary)">${escapeHtml(f.type||'Finding')}</span>
+                                   <span style="font-size:10px;color:var(--text-muted);margin-left:auto">CVSS&nbsp;${escapeHtml(String(f.cvss?.score||'N/A'))}</span>
+                               </div>
+                               <div style="font-size:12px;color:var(--text-secondary);margin-top:4px">${escapeHtml(f.description||'')}</div>
+                               ${f.remediation?`<div class="report-finding-rem" style="font-size:11px">${escapeHtml(f.remediation)}</div>`:''}
+                           </div>`).join('')}
+                       ${(report.findings||[]).length>5
+                           ? `<div style="font-size:11px;color:var(--text-muted);text-align:center;padding:6px 0">
+                                  … and ${report.findings.length-5} more finding(s) —
+                                  <a href="${linkHtml}" download="bbhpro_${slug}_${datePart}.html"
+                                     style="color:var(--accent);text-decoration:none">download full report</a>
+                              </div>` : ''}`
+                    : `<div style="color:var(--text-muted);font-size:12px;padding:4px 0">
+                           <i class="fas fa-shield-alt" style="margin-right:6px;color:var(--green)"></i>No significant findings.
+                       </div>`
+                }
+            </div>
+
         </div>`;
     }));
 
     container.innerHTML = reportsHtml.filter(Boolean).join('') ||
         '<div class="empty-state"><i class="fas fa-file-alt fa-3x"></i><p>No reports yet</p></div>';
+
+    // Also populate Quick Download Links panel
+    buildQuickDownloadLinks(scans);
+}
+
+/**
+ * Build the "Quick Download Links" panel on the Reports page.
+ * Shows direct <a> links for every completed scan — no JS fetch needed.
+ */
+function buildQuickDownloadLinks(scans) {
+    const panel   = document.getElementById('quickDownloadLinks');
+    const content = document.getElementById('quickDownloadContent');
+    if (!panel || !content) return;
+    if (!scans || scans.length === 0) { panel.style.display = 'none'; return; }
+
+    panel.style.display = 'block';
+
+    content.innerHTML = scans.map(scan => {
+        const sid    = scan.id;
+        const target = escapeHtml(scan.target || sid);
+        const slug   = (scan.target||sid).replace(/[^a-zA-Z0-9._-]/g,'_').slice(0,40);
+        const date   = scan.started ? new Date(scan.started*1000).toLocaleDateString() : '';
+
+        return `
+        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 0;
+                    border-bottom:1px solid rgba(255,255,255,0.04)">
+            <div style="min-width:160px;flex:1">
+                <div style="font-size:12px;font-weight:700;color:var(--text-primary)">${target}</div>
+                ${date ? `<div style="font-size:10px;color:var(--text-muted)">${date}</div>` : ''}
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px">
+                <a href="/api/scan/${sid}/export?format=txt"
+                   title="Download .txt report for ${target}"
+                   style="display:inline-flex;align-items:center;gap:5px;padding:5px 12px;
+                          background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.28);
+                          border-radius:6px;color:#818cf8;font-size:11px;font-weight:700;text-decoration:none"
+                   onclick="event.preventDefault(); downloadExport('${sid}','txt')">
+                    <i class="fas fa-file-alt"></i> .TXT
+                </a>
+                <a href="/api/scan/${sid}/export?format=html"
+                   title="Download .html report for ${target}"
+                   style="display:inline-flex;align-items:center;gap:5px;padding:5px 12px;
+                          background:rgba(6,182,212,0.12);border:1px solid rgba(6,182,212,0.28);
+                          border-radius:6px;color:#06b6d4;font-size:11px;font-weight:700;text-decoration:none"
+                   onclick="event.preventDefault(); downloadExport('${sid}','html')">
+                    <i class="fas fa-file-code"></i> .HTML
+                </a>
+                <a href="/api/scan/${sid}/export?format=pdf"
+                   title="Download .pdf report for ${target}"
+                   style="display:inline-flex;align-items:center;gap:5px;padding:5px 12px;
+                          background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.28);
+                          border-radius:6px;color:#ef4444;font-size:11px;font-weight:700;text-decoration:none"
+                   onclick="event.preventDefault(); downloadExport('${sid}','pdf')">
+                    <i class="fas fa-file-pdf"></i> .PDF
+                </a>
+                <a href="/api/scan/${sid}/report"
+                   title="Download raw JSON for ${target}"
+                   style="display:inline-flex;align-items:center;gap:5px;padding:5px 12px;
+                          background:rgba(245,158,11,0.10);border:1px solid rgba(245,158,11,0.25);
+                          border-radius:6px;color:#f59e0b;font-size:11px;font-weight:700;text-decoration:none"
+                   onclick="event.preventDefault(); exportScanJson('${sid}')">
+                    <i class="fas fa-code"></i> .JSON
+                </a>
+            </div>
+        </div>`;
+    }).join('');
 }
 
 // ─── Export / Download helpers ────────────────────────────────────────────────

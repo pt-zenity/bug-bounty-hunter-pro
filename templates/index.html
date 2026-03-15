@@ -1406,19 +1406,28 @@
                     <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
                         <h2><i class="fas fa-file-alt"></i> Scan Reports &amp; Export</h2>
                         <div style="display:flex;align-items:center;gap:8px">
-                            <span style="font-size:11px;color:var(--text-muted)">Export all scans:</span>
-                            <button class="btn btn-sm" onclick="exportAllScans('txt')" title="Export all as TXT" style="font-size:11px;padding:5px 10px">
-                                <i class="fas fa-file-alt"></i> TXT
+                            <span style="font-size:11px;color:var(--text-muted)">Bulk export:</span>
+                            <button class="btn btn-sm" onclick="exportAllScans('txt')" title="Download all as TXT" style="font-size:11px;padding:5px 10px">
+                                <i class="fas fa-file-alt"></i> All TXT
                             </button>
-                            <button class="btn btn-sm" onclick="exportAllScans('html')" title="Export all as HTML" style="font-size:11px;padding:5px 10px">
-                                <i class="fas fa-file-code"></i> HTML
+                            <button class="btn btn-sm" onclick="exportAllScans('html')" title="Download all as HTML" style="font-size:11px;padding:5px 10px">
+                                <i class="fas fa-file-code"></i> All HTML
                             </button>
-                            <button class="btn btn-sm" onclick="exportAllScans('pdf')" title="Export all as PDF" style="font-size:11px;padding:5px 10px;background:rgba(239,68,68,0.1);border-color:rgba(239,68,68,0.3);color:#ef4444">
-                                <i class="fas fa-file-pdf"></i> PDF
+                            <button class="btn btn-sm" onclick="exportAllScans('pdf')" title="Download all as PDF" style="font-size:11px;padding:5px 10px;background:rgba(239,68,68,0.1);border-color:rgba(239,68,68,0.3);color:#ef4444">
+                                <i class="fas fa-file-pdf"></i> All PDF
                             </button>
                         </div>
                     </div>
                     <div class="card-body">
+
+                        <!-- Quick Download Links (populated by JS) -->
+                        <div id="quickDownloadLinks" style="display:none;margin-bottom:18px;padding:14px 16px;background:rgba(99,102,241,0.06);border:1px solid rgba(99,102,241,0.15);border-radius:10px">
+                            <div style="font-size:11px;font-weight:700;color:var(--text-muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px">
+                                <i class="fas fa-link" style="margin-right:6px;color:var(--accent)"></i>Quick Download Links
+                            </div>
+                            <div id="quickDownloadContent"></div>
+                        </div>
+
                         <div id="reportsContent">
                             <div class="empty-state">
                                 <i class="fas fa-file-alt fa-3x"></i>
