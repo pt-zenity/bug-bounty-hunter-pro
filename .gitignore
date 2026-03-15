@@ -1,11 +1,37 @@
+# Python
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
+*.py[cod]
+*.egg
 *.egg-info/
+.eggs/
+dist/
+build/
 .env
-logs/
-*.log
-*.pid
+.venv
+venv/
+
+# Logs
+logs/*.log
+logs/*.pid
+/tmp/nginx*.log
+/tmp/nginx*.pid
+
+# Tool state
+.wrangler/
 node_modules/
+
+# OS
+.DS_Store
+*.swp
+*~
+
+# SQLMap output
+/tmp/sqlmap_out/
+
+# Local tools (installed by install.sh, not committed)
+tools/XSStrike/
+tools/SecretFinder/
+tools/LinkFinder/
+
+# Wordlists yang besar (opsional - uncomment jika ingin exclude)
+# wordlists/raft-medium-dirs.txt
