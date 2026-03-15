@@ -418,63 +418,48 @@ function renderScanExportBar(scanId) {
         progressCard.parentNode.insertBefore(bar, progressCard.nextSibling);
     }
     bar.innerHTML = `
-        <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:10px;padding:14px 18px;margin-top:12px">
+        <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.25);border-radius:10px;padding:14px 18px;margin-top:12px">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
                 <i class="fas fa-check-circle" style="color:#10b981;font-size:16px"></i>
                 <span style="font-size:13px;color:#10b981;font-weight:700">Scan Complete!</span>
-                <span style="font-size:11px;color:var(--text-muted)">— Download your report:</span>
+                <span style="font-size:11px;color:var(--text-muted)">Download your report:</span>
             </div>
             <div style="display:flex;flex-wrap:wrap;gap:8px">
-                <a href="${API_BASE}/scan/${scanId}/export?format=txt"
-                   title="Download Plain Text report"
-                   style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;
-                          background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.35);
-                          border-radius:7px;color:#818cf8;font-size:12px;font-weight:700;
-                          text-decoration:none;cursor:pointer"
-                   onclick="event.preventDefault(); downloadExport('${scanId}','txt')">
+                <button onclick="downloadExport('${scanId}','txt')"
+                    style="display:inline-flex;align-items:center;gap:6px;padding:9px 18px;
+                           background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.4);
+                           border-radius:7px;color:#818cf8;font-size:12px;font-weight:700;cursor:pointer">
                     <i class="fas fa-file-alt"></i> .TXT
                     <span style="font-size:10px;opacity:0.7">Plain Text</span>
-                </a>
-                <a href="${API_BASE}/scan/${scanId}/export?format=html"
-                   title="Download HTML report"
-                   style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;
-                          background:rgba(6,182,212,0.15);border:1px solid rgba(6,182,212,0.35);
-                          border-radius:7px;color:#06b6d4;font-size:12px;font-weight:700;
-                          text-decoration:none;cursor:pointer"
-                   onclick="event.preventDefault(); downloadExport('${scanId}','html')">
+                </button>
+                <button onclick="downloadExport('${scanId}','html')"
+                    style="display:inline-flex;align-items:center;gap:6px;padding:9px 18px;
+                           background:rgba(6,182,212,0.15);border:1px solid rgba(6,182,212,0.4);
+                           border-radius:7px;color:#06b6d4;font-size:12px;font-weight:700;cursor:pointer">
                     <i class="fas fa-file-code"></i> .HTML
                     <span style="font-size:10px;opacity:0.7">Web Report</span>
-                </a>
-                <a href="${API_BASE}/scan/${scanId}/export?format=pdf"
-                   title="Download PDF report"
-                   style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;
-                          background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.35);
-                          border-radius:7px;color:#ef4444;font-size:12px;font-weight:700;
-                          text-decoration:none;cursor:pointer"
-                   onclick="event.preventDefault(); downloadExport('${scanId}','pdf')">
+                </button>
+                <button onclick="downloadExport('${scanId}','pdf')"
+                    style="display:inline-flex;align-items:center;gap:6px;padding:9px 18px;
+                           background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);
+                           border-radius:7px;color:#ef4444;font-size:12px;font-weight:700;cursor:pointer">
                     <i class="fas fa-file-pdf"></i> .PDF
                     <span style="font-size:10px;opacity:0.7">PDF Report</span>
-                </a>
-                <a href="${API_BASE}/scan/${scanId}/report"
-                   title="Download JSON report"
-                   style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;
-                          background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.35);
-                          border-radius:7px;color:#f59e0b;font-size:12px;font-weight:700;
-                          text-decoration:none;cursor:pointer"
-                   onclick="event.preventDefault(); exportScanJson('${scanId}')">
+                </button>
+                <button onclick="exportScanJson('${scanId}')"
+                    style="display:inline-flex;align-items:center;gap:6px;padding:9px 18px;
+                           background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.4);
+                           border-radius:7px;color:#f59e0b;font-size:12px;font-weight:700;cursor:pointer">
                     <i class="fas fa-code"></i> .JSON
                     <span style="font-size:10px;opacity:0.7">Raw Data</span>
-                </a>
-                <a href="#"
-                   title="Download Markdown report"
-                   style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;
-                          background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);
-                          border-radius:7px;color:var(--text-secondary);font-size:12px;font-weight:700;
-                          text-decoration:none;cursor:pointer"
-                   onclick="event.preventDefault(); exportScanMarkdown('${scanId}')">
+                </button>
+                <button onclick="exportScanMarkdown('${scanId}')"
+                    style="display:inline-flex;align-items:center;gap:6px;padding:9px 18px;
+                           background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);
+                           border-radius:7px;color:var(--text-secondary);font-size:12px;font-weight:700;cursor:pointer">
                     <i class="fas fa-hashtag"></i> .MD
                     <span style="font-size:10px;opacity:0.7">Markdown</span>
-                </a>
+                </button>
             </div>
         </div>`;
 }
@@ -2121,14 +2106,7 @@ async function loadReports() {
         const c   = report.severity_counts || {};
         const sid = escapeHtml(scan.id);
         const total = (c.CRITICAL||0)+(c.HIGH||0)+(c.MEDIUM||0)+(c.LOW||0)+(c.INFO||0);
-
-        // Direct href links → browser handles download natively (no JS needed)
-        const linkTxt  = `${API_BASE}/scan/${scan.id}/export?format=txt`;
-        const linkHtml = `${API_BASE}/scan/${scan.id}/export?format=html`;
-        const linkPdf  = `${API_BASE}/scan/${scan.id}/export?format=pdf`;
-        const target   = escapeHtml(report.target || scan.target);
-        const slug     = (report.target||scan.target||'report').replace(/[^a-zA-Z0-9._-]/g,'_').slice(0,40);
-        const datePart = (report.date||'').replace(/[: ]/g,'').slice(0,15);
+        const target = escapeHtml(report.target || scan.target);
 
         return `
         <div class="report-card" style="margin-bottom:18px;border-radius:12px;overflow:hidden;border:1px solid rgba(255,255,255,0.07)">
@@ -2156,76 +2134,53 @@ async function loadReports() {
                 ${escapeHtml(report.executive_summary || '')}
             </div>
 
-            <!-- ─── DOWNLOAD LINKS ─── -->
-            <div style="padding:14px 18px;background:rgba(0,0,0,0.15);border-bottom:1px solid rgba(255,255,255,0.05)">
+            <!-- ─── DOWNLOAD BUTTONS ─── -->
+            <div style="padding:14px 18px;background:rgba(0,0,0,0.18);border-bottom:1px solid rgba(255,255,255,0.05)">
                 <div style="font-size:11px;font-weight:700;color:var(--text-muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px">
-                    <i class="fas fa-download" style="margin-right:6px"></i>Download Report
+                    <i class="fas fa-download" style="margin-right:6px;color:var(--accent)"></i>Download Report
+                    <span style="font-weight:400;font-size:10px;margin-left:8px;color:var(--text-muted)">${total} finding${total!==1?'s':''}</span>
                 </div>
-                <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
-
-                    <!-- TXT link -->
-                    <a href="${linkTxt}"
-                       download="bbhpro_${slug}_${datePart}.txt"
-                       title="Download plain-text report"
-                       style="display:inline-flex;align-items:center;gap:7px;padding:9px 16px;
-                              background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.3);
-                              border-radius:8px;color:#818cf8;font-size:12px;font-weight:600;
-                              text-decoration:none;transition:all 0.2s"
-                       onmouseover="this.style.background='rgba(99,102,241,0.22)'"
-                       onmouseout="this.style.background='rgba(99,102,241,0.12)'">
-                        <i class="fas fa-file-alt" style="font-size:14px"></i>
+                <div style="display:flex;flex-wrap:wrap;gap:8px">
+                    <button onclick="downloadExport('${scan.id}','txt')"
+                        style="display:inline-flex;align-items:center;gap:7px;padding:9px 18px;
+                               background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.4);
+                               border-radius:8px;color:#818cf8;font-size:12px;font-weight:700;cursor:pointer">
+                        <i class="fas fa-file-alt" style="font-size:13px"></i>
                         <span>.TXT</span>
-                        <span style="font-size:10px;opacity:0.7">Plain Text</span>
-                    </a>
-
-                    <!-- HTML link -->
-                    <a href="${linkHtml}"
-                       download="bbhpro_${slug}_${datePart}.html"
-                       title="Download HTML report"
-                       style="display:inline-flex;align-items:center;gap:7px;padding:9px 16px;
-                              background:rgba(6,182,212,0.12);border:1px solid rgba(6,182,212,0.3);
-                              border-radius:8px;color:#06b6d4;font-size:12px;font-weight:600;
-                              text-decoration:none;transition:all 0.2s"
-                       onmouseover="this.style.background='rgba(6,182,212,0.22)'"
-                       onmouseout="this.style.background='rgba(6,182,212,0.12)'">
-                        <i class="fas fa-file-code" style="font-size:14px"></i>
+                        <span style="font-size:10px;opacity:0.65">Plain Text</span>
+                    </button>
+                    <button onclick="downloadExport('${scan.id}','html')"
+                        style="display:inline-flex;align-items:center;gap:7px;padding:9px 18px;
+                               background:rgba(6,182,212,0.15);border:1px solid rgba(6,182,212,0.4);
+                               border-radius:8px;color:#06b6d4;font-size:12px;font-weight:700;cursor:pointer">
+                        <i class="fas fa-file-code" style="font-size:13px"></i>
                         <span>.HTML</span>
-                        <span style="font-size:10px;opacity:0.7">Web Report</span>
-                    </a>
-
-                    <!-- PDF link -->
-                    <a href="${linkPdf}"
-                       download="bbhpro_${slug}_${datePart}.pdf"
-                       title="Download PDF report"
-                       style="display:inline-flex;align-items:center;gap:7px;padding:9px 16px;
-                              background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.3);
-                              border-radius:8px;color:#ef4444;font-size:12px;font-weight:600;
-                              text-decoration:none;transition:all 0.2s"
-                       onmouseover="this.style.background='rgba(239,68,68,0.22)'"
-                       onmouseout="this.style.background='rgba(239,68,68,0.12)'">
-                        <i class="fas fa-file-pdf" style="font-size:14px"></i>
+                        <span style="font-size:10px;opacity:0.65">Web Report</span>
+                    </button>
+                    <button onclick="downloadExport('${scan.id}','pdf')"
+                        style="display:inline-flex;align-items:center;gap:7px;padding:9px 18px;
+                               background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);
+                               border-radius:8px;color:#ef4444;font-size:12px;font-weight:700;cursor:pointer">
+                        <i class="fas fa-file-pdf" style="font-size:13px"></i>
                         <span>.PDF</span>
-                        <span style="font-size:10px;opacity:0.7">PDF Report</span>
-                    </a>
-
-                    <!-- JSON link -->
-                    <a href="${API_BASE}/scan/${scan.id}/report"
-                       download="bbhpro_${slug}_${datePart}.json"
-                       title="Download raw JSON report"
-                       style="display:inline-flex;align-items:center;gap:7px;padding:9px 16px;
-                              background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.3);
-                              border-radius:8px;color:#f59e0b;font-size:12px;font-weight:600;
-                              text-decoration:none;transition:all 0.2s"
-                       onmouseover="this.style.background='rgba(245,158,11,0.22)'"
-                       onmouseout="this.style.background='rgba(245,158,11,0.12)'">
-                        <i class="fas fa-code" style="font-size:14px"></i>
+                        <span style="font-size:10px;opacity:0.65">PDF Report</span>
+                    </button>
+                    <button onclick="exportScanJson('${scan.id}')"
+                        style="display:inline-flex;align-items:center;gap:7px;padding:9px 18px;
+                               background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.4);
+                               border-radius:8px;color:#f59e0b;font-size:12px;font-weight:700;cursor:pointer">
+                        <i class="fas fa-code" style="font-size:13px"></i>
                         <span>.JSON</span>
-                        <span style="font-size:10px;opacity:0.7">Raw Data</span>
-                    </a>
-
-                    <span style="margin-left:auto;font-size:11px;color:var(--text-muted)">
-                        ${total} finding${total!==1?'s':''} total
-                    </span>
+                        <span style="font-size:10px;opacity:0.65">Raw Data</span>
+                    </button>
+                    <button onclick="exportScanMarkdown('${scan.id}')"
+                        style="display:inline-flex;align-items:center;gap:7px;padding:9px 18px;
+                               background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);
+                               border-radius:8px;color:var(--text-secondary);font-size:12px;font-weight:700;cursor:pointer">
+                        <i class="fas fa-hashtag" style="font-size:13px"></i>
+                        <span>.MD</span>
+                        <span style="font-size:10px;opacity:0.65">Markdown</span>
+                    </button>
                 </div>
             </div>
 
@@ -2249,8 +2204,10 @@ async function loadReports() {
                        ${(report.findings||[]).length>5
                            ? `<div style="font-size:11px;color:var(--text-muted);text-align:center;padding:6px 0">
                                   … and ${report.findings.length-5} more finding(s) —
-                                  <a href="${linkHtml}" download="bbhpro_${slug}_${datePart}.html"
-                                     style="color:var(--accent);text-decoration:none">download full report</a>
+                                  <button onclick="downloadExport('${scan.id}','html')"
+                                      style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:11px;padding:0;text-decoration:underline">
+                                      download full report
+                                  </button>
                               </div>` : ''}`
                     : `<div style="color:var(--text-muted);font-size:12px;padding:4px 0">
                            <i class="fas fa-shield-alt" style="margin-right:6px;color:var(--green)"></i>No significant findings.
@@ -2283,49 +2240,46 @@ function buildQuickDownloadLinks(scans) {
     content.innerHTML = scans.map(scan => {
         const sid    = scan.id;
         const target = escapeHtml(scan.target || sid);
-        const slug   = (scan.target||sid).replace(/[^a-zA-Z0-9._-]/g,'_').slice(0,40);
-        const date   = scan.started ? new Date(scan.started*1000).toLocaleDateString() : '';
+        // scan.started is ISO string e.g. "2026-03-15T18:24:43.083342"
+        const date   = scan.started ? new Date(scan.started).toLocaleDateString() : '';
+        const sc     = scan.severity_counts || {};
+        const critHigh = (sc.CRITICAL||0) + (sc.HIGH||0);
 
         return `
-        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 0;
-                    border-bottom:1px solid rgba(255,255,255,0.04)">
+        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 0;
+                    border-bottom:1px solid rgba(255,255,255,0.05)">
             <div style="min-width:160px;flex:1">
                 <div style="font-size:12px;font-weight:700;color:var(--text-primary)">${target}</div>
-                ${date ? `<div style="font-size:10px;color:var(--text-muted)">${date}</div>` : ''}
+                <div style="font-size:10px;color:var(--text-muted);margin-top:2px">
+                    ${date}
+                    ${critHigh ? `&nbsp;·&nbsp;<span style="color:#ef4444;font-weight:600">${critHigh} crit/high</span>` : ''}
+                </div>
             </div>
             <div style="display:flex;flex-wrap:wrap;gap:6px">
-                <a href="/api/scan/${sid}/export?format=txt"
-                   title="Download .txt report for ${target}"
-                   style="display:inline-flex;align-items:center;gap:5px;padding:5px 12px;
-                          background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.28);
-                          border-radius:6px;color:#818cf8;font-size:11px;font-weight:700;text-decoration:none"
-                   onclick="event.preventDefault(); downloadExport('${sid}','txt')">
+                <button onclick="downloadExport('${sid}','txt')"
+                    style="display:inline-flex;align-items:center;gap:5px;padding:6px 13px;
+                           background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.35);
+                           border-radius:6px;color:#818cf8;font-size:11px;font-weight:700;cursor:pointer">
                     <i class="fas fa-file-alt"></i> .TXT
-                </a>
-                <a href="/api/scan/${sid}/export?format=html"
-                   title="Download .html report for ${target}"
-                   style="display:inline-flex;align-items:center;gap:5px;padding:5px 12px;
-                          background:rgba(6,182,212,0.12);border:1px solid rgba(6,182,212,0.28);
-                          border-radius:6px;color:#06b6d4;font-size:11px;font-weight:700;text-decoration:none"
-                   onclick="event.preventDefault(); downloadExport('${sid}','html')">
+                </button>
+                <button onclick="downloadExport('${sid}','html')"
+                    style="display:inline-flex;align-items:center;gap:5px;padding:6px 13px;
+                           background:rgba(6,182,212,0.15);border:1px solid rgba(6,182,212,0.35);
+                           border-radius:6px;color:#06b6d4;font-size:11px;font-weight:700;cursor:pointer">
                     <i class="fas fa-file-code"></i> .HTML
-                </a>
-                <a href="/api/scan/${sid}/export?format=pdf"
-                   title="Download .pdf report for ${target}"
-                   style="display:inline-flex;align-items:center;gap:5px;padding:5px 12px;
-                          background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.28);
-                          border-radius:6px;color:#ef4444;font-size:11px;font-weight:700;text-decoration:none"
-                   onclick="event.preventDefault(); downloadExport('${sid}','pdf')">
+                </button>
+                <button onclick="downloadExport('${sid}','pdf')"
+                    style="display:inline-flex;align-items:center;gap:5px;padding:6px 13px;
+                           background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.35);
+                           border-radius:6px;color:#ef4444;font-size:11px;font-weight:700;cursor:pointer">
                     <i class="fas fa-file-pdf"></i> .PDF
-                </a>
-                <a href="/api/scan/${sid}/report"
-                   title="Download raw JSON for ${target}"
-                   style="display:inline-flex;align-items:center;gap:5px;padding:5px 12px;
-                          background:rgba(245,158,11,0.10);border:1px solid rgba(245,158,11,0.25);
-                          border-radius:6px;color:#f59e0b;font-size:11px;font-weight:700;text-decoration:none"
-                   onclick="event.preventDefault(); exportScanJson('${sid}')">
+                </button>
+                <button onclick="exportScanJson('${sid}')"
+                    style="display:inline-flex;align-items:center;gap:5px;padding:6px 13px;
+                           background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.3);
+                           border-radius:6px;color:#f59e0b;font-size:11px;font-weight:700;cursor:pointer">
                     <i class="fas fa-code"></i> .JSON
-                </a>
+                </button>
             </div>
         </div>`;
     }).join('');
@@ -2377,6 +2331,11 @@ async function downloadExport(scanId, format) {
  * Export ALL completed scans (each as separate download).
  */
 async function exportAllScans(format) {
+    // First refresh scans from API
+    try {
+        const r = await fetch(`${API_BASE}/scan/list`);
+        if (r.ok) { const list = await r.json(); list.forEach(s => { allScans[s.id] = s; }); }
+    } catch(e) {}
     const scans = Object.values(allScans).filter(s => s.status === 'completed');
     if (scans.length === 0) {
         showToast('No completed scans to export', 'error');
@@ -2385,7 +2344,7 @@ async function exportAllScans(format) {
     showToast(`Exporting ${scans.length} scan(s) as ${format.toUpperCase()}…`, 'info');
     for (const scan of scans) {
         await downloadExport(scan.id, format);
-        await new Promise(r => setTimeout(r, 400)); // small delay between downloads
+        await new Promise(r => setTimeout(r, 500));
     }
 }
 
