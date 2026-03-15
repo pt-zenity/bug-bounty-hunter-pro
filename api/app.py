@@ -3097,6 +3097,25 @@ def scan_export_available(sid):
         }
     })
 
+@app.route('/api/scan/<sid>', methods=['DELETE'])
+def scan_delete(sid):
+    """Delete a single scan by ID."""
+    if sid not in active_scans:
+        return jsonify({"error": "Not found"}), 404
+    # Don't allow deleting a running scan
+    if active_scans[sid].get("status") == "running":
+        return jsonify({"error": "Cannot delete a running scan. Stop it first."}), 400
+    del active_scans[sid]
+    return jsonify({"deleted": sid, "success": True})
+
+@app.route('/api/scan/all', methods=['DELETE'])
+def scan_delete_all():
+    """Delete all completed/error scans (keep running ones)."""
+    to_delete = [sid for sid, s in active_scans.items() if s.get("status") != "running"]
+    for sid in to_delete:
+        del active_scans[sid]
+    return jsonify({"deleted": to_delete, "count": len(to_delete), "success": True})
+
 @app.route('/api/tools/dns', methods=['POST'])
 def tool_dns():
     raw = (request.json or {}).get('target','').strip()

@@ -294,7 +294,20 @@
                     <div class="card">
                         <div class="card-header">
                             <h2><i class="fas fa-history"></i> Recent Scans</h2>
-                            <button class="btn btn-sm" onclick="refreshScans()"><i class="fas fa-sync"></i></button>
+                            <div style="display:flex;gap:6px;align-items:center">
+                                <button class="btn btn-sm" onclick="refreshScans()" title="Refresh"><i class="fas fa-sync"></i></button>
+                                <button onclick="confirmDeleteAllScans()"
+                                    title="Hapus semua scan"
+                                    style="padding:5px 10px;background:rgba(239,68,68,0.1);
+                                           border:1px solid rgba(239,68,68,0.25);border-radius:6px;
+                                           color:#f87171;font-size:11px;cursor:pointer;
+                                           display:inline-flex;align-items:center;gap:5px;
+                                           transition:background 0.15s"
+                                    onmouseover="this.style.background='rgba(239,68,68,0.25)'"
+                                    onmouseout="this.style.background='rgba(239,68,68,0.1)'">
+                                    <i class="fas fa-trash-alt"></i>
+                                </button>
+                            </div>
                         </div>
                         <div class="card-body">
                             <div id="recentScans">
@@ -1405,7 +1418,7 @@
                 <div class="card">
                     <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
                         <h2><i class="fas fa-file-alt"></i> Scan Reports &amp; Export</h2>
-                        <div style="display:flex;align-items:center;gap:8px">
+                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                             <span style="font-size:11px;color:var(--text-muted)">Bulk export:</span>
                             <button class="btn btn-sm" onclick="exportAllScans('txt')" title="Download all as TXT" style="font-size:11px;padding:5px 10px">
                                 <i class="fas fa-file-alt"></i> All TXT
@@ -1415,6 +1428,16 @@
                             </button>
                             <button class="btn btn-sm" onclick="exportAllScans('pdf')" title="Download all as PDF" style="font-size:11px;padding:5px 10px;background:rgba(239,68,68,0.1);border-color:rgba(239,68,68,0.3);color:#ef4444">
                                 <i class="fas fa-file-pdf"></i> All PDF
+                            </button>
+                            <button onclick="confirmDeleteAllScans()"
+                                title="Hapus semua scan"
+                                style="font-size:11px;padding:5px 12px;background:rgba(239,68,68,0.1);
+                                       border:1px solid rgba(239,68,68,0.3);border-radius:6px;
+                                       color:#f87171;cursor:pointer;display:inline-flex;
+                                       align-items:center;gap:5px;transition:background 0.15s"
+                                onmouseover="this.style.background='rgba(239,68,68,0.25)'"
+                                onmouseout="this.style.background='rgba(239,68,68,0.1)'">
+                                <i class="fas fa-trash-alt"></i> Hapus Semua
                             </button>
                         </div>
                     </div>

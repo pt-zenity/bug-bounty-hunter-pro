@@ -519,15 +519,27 @@ function renderRecentScans(scans) {
     container.innerHTML = scans.map(scan => `
         <div class="recent-scan-item" onclick="viewScanDetail('${scan.id}')">
             <div class="scan-icon" style="color: var(--accent)"><i class="fas fa-crosshairs"></i></div>
-            <div style="flex:1">
+            <div style="flex:1;min-width:0">
                 <div class="scan-target-text">${escapeHtml(scan.target || 'Unknown')}</div>
                 <div class="scan-meta">${formatDate(scan.started)} · ${scan.findings_count || 0} findings</div>
             </div>
-            <span class="status-badge ${scan.status}">
+            <span class="status-badge ${scan.status}" style="flex-shrink:0">
                 ${scan.status === 'running' ? '<i class="fas fa-spinner fa-spin"></i>' : 
                   scan.status === 'completed' ? '<i class="fas fa-check"></i>' : '<i class="fas fa-times"></i>'}
                 ${scan.status}
             </span>
+            ${scan.status !== 'running' ? `
+            <button onclick="event.stopPropagation();confirmDeleteScan('${scan.id}','${escapeHtml(scan.target||'')}')"
+                title="Hapus scan"
+                style="flex-shrink:0;margin-left:4px;background:rgba(239,68,68,0.1);
+                       border:1px solid rgba(239,68,68,0.25);border-radius:6px;
+                       color:#f87171;width:28px;height:28px;cursor:pointer;
+                       display:inline-flex;align-items:center;justify-content:center;
+                       transition:background 0.15s"
+                onmouseover="this.style.background='rgba(239,68,68,0.25)'"
+                onmouseout="this.style.background='rgba(239,68,68,0.1)'">
+                <i class="fas fa-trash-alt" style="font-size:11px"></i>
+            </button>` : ''}
         </div>
     `).join('');
 }
@@ -580,15 +592,179 @@ function loadScanHistory() {
                         <td><span style="color:var(--yellow);font-weight:600">${scan.findings_count || 0}</span></td>
                         <td style="font-size:11px;color:var(--text-muted)">${formatDate(scan.started)}</td>
                         <td>
-                            <button class="btn btn-sm" onclick="event.stopPropagation();viewScanDetail('${scan.id}')">
-                                <i class="fas fa-eye"></i>
-                            </button>
+                            <div style="display:flex;gap:6px;align-items:center">
+                                <button class="btn btn-sm" onclick="event.stopPropagation();viewScanDetail('${scan.id}')" title="Lihat detail">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                                ${scan.status !== 'running' ? `
+                                <button onclick="event.stopPropagation();confirmDeleteScan('${scan.id}','${escapeHtml(scan.target||'')}')"
+                                    title="Hapus scan"
+                                    style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);
+                                           border-radius:6px;color:#f87171;padding:4px 8px;cursor:pointer;font-size:11px;
+                                           transition:background 0.15s"
+                                    onmouseover="this.style.background='rgba(239,68,68,0.25)'"
+                                    onmouseout="this.style.background='rgba(239,68,68,0.1)'">
+                                    <i class="fas fa-trash-alt"></i>
+                                </button>` : ''}
+                            </div>
                         </td>
                     </tr>
                 `).join('')}
             </tbody>
         </table>
     `;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DELETE / HAPUS SCAN
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Show confirm dialog then delete a single scan.
+ */
+function confirmDeleteScan(scanId, target) {
+    showConfirmDialog(
+        'Hapus Scan',
+        `Yakin ingin menghapus scan <strong>${escapeHtml(target)}</strong>?<br>
+         <small style="color:var(--text-muted)">Data scan dan laporan akan hilang permanen.</small>`,
+        'Hapus',
+        async () => {
+            await deleteScan(scanId);
+        }
+    );
+}
+
+/**
+ * Show confirm dialog then delete ALL completed/error scans.
+ */
+function confirmDeleteAllScans() {
+    const completed = Object.values(allScans).filter(s => s.status !== 'running');
+    if (completed.length === 0) { showToast('Tidak ada scan yang bisa dihapus', 'info'); return; }
+    showConfirmDialog(
+        'Hapus Semua Scan',
+        `Yakin ingin menghapus <strong>${completed.length}</strong> scan?<br>
+         <small style="color:var(--text-muted)">Scan yang sedang berjalan tidak akan dihapus.</small>`,
+        'Hapus Semua',
+        async () => {
+            await deleteAllScans();
+        }
+    );
+}
+
+async function deleteScan(scanId) {
+    try {
+        const resp = await fetch(`${API_BASE}/scan/${scanId}`, { method: 'DELETE' });
+        const data = await resp.json();
+        if (!resp.ok) { showToast(data.error || 'Gagal menghapus scan', 'error'); return; }
+
+        // Remove from local state
+        delete allScans[scanId];
+
+        // Close detail panel if it was showing this scan
+        if (window._currentViewScanId === scanId) {
+            document.getElementById('scanDetailPanel').style.display = 'none';
+            window._currentViewScanId = null;
+        }
+
+        showToast(`Scan berhasil dihapus`, 'success');
+
+        // Refresh all views
+        await refreshScans();
+        if (document.getElementById('reportsContent')) loadReports();
+    } catch(err) {
+        showToast('Error: ' + err.message, 'error');
+    }
+}
+
+async function deleteAllScans() {
+    try {
+        const resp = await fetch(`${API_BASE}/scan/all`, { method: 'DELETE' });
+        const data = await resp.json();
+        if (!resp.ok) { showToast(data.error || 'Gagal menghapus scan', 'error'); return; }
+
+        // Clear local state for deleted scans
+        (data.deleted || []).forEach(sid => delete allScans[sid]);
+
+        // Close detail panel
+        document.getElementById('scanDetailPanel').style.display = 'none';
+        window._currentViewScanId = null;
+
+        showToast(`${data.count} scan berhasil dihapus`, 'success');
+
+        // Refresh all views
+        await refreshScans();
+        if (document.getElementById('reportsContent')) loadReports();
+    } catch(err) {
+        showToast('Error: ' + err.message, 'error');
+    }
+}
+
+/**
+ * Generic confirm dialog (modal overlay).
+ * onConfirm is called when user clicks the confirm button.
+ */
+function showConfirmDialog(title, bodyHtml, confirmLabel, onConfirm) {
+    // Remove any existing dialog
+    const old = document.getElementById('confirmDialog');
+    if (old) old.remove();
+
+    const el = document.createElement('div');
+    el.id = 'confirmDialog';
+    el.style.cssText = `
+        position:fixed;inset:0;z-index:19999;
+        background:rgba(0,0,0,0.65);backdrop-filter:blur(3px);
+        display:flex;align-items:center;justify-content:center;padding:20px`;
+    el.innerHTML = `
+        <div style="background:var(--bg-secondary);border:1px solid rgba(239,68,68,0.3);
+                    border-radius:14px;padding:28px 28px 22px;max-width:420px;width:100%;
+                    box-shadow:0 20px 60px rgba(0,0,0,0.6)">
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
+                <div style="width:40px;height:40px;border-radius:50%;background:rgba(239,68,68,0.15);
+                            display:flex;align-items:center;justify-content:center;flex-shrink:0">
+                    <i class="fas fa-trash-alt" style="color:#f87171;font-size:16px"></i>
+                </div>
+                <h3 style="font-size:16px;font-weight:700;color:var(--text-primary);margin:0">${escapeHtml(title)}</h3>
+            </div>
+            <div style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:22px">
+                ${bodyHtml}
+            </div>
+            <div style="display:flex;gap:10px;justify-content:flex-end">
+                <button id="confirmDialogCancel"
+                    style="padding:8px 20px;background:rgba(255,255,255,0.06);
+                           border:1px solid rgba(255,255,255,0.12);border-radius:8px;
+                           color:var(--text-secondary);font-size:13px;cursor:pointer;
+                           transition:background 0.15s"
+                    onmouseover="this.style.background='rgba(255,255,255,0.12)'"
+                    onmouseout="this.style.background='rgba(255,255,255,0.06)'">
+                    Batal
+                </button>
+                <button id="confirmDialogOk"
+                    style="padding:8px 20px;background:rgba(239,68,68,0.18);
+                           border:1px solid rgba(239,68,68,0.35);border-radius:8px;
+                           color:#f87171;font-size:13px;font-weight:700;cursor:pointer;
+                           transition:background 0.15s"
+                    onmouseover="this.style.background='rgba(239,68,68,0.32)'"
+                    onmouseout="this.style.background='rgba(239,68,68,0.18)'">
+                    <i class="fas fa-trash-alt"></i> ${escapeHtml(confirmLabel)}
+                </button>
+            </div>
+        </div>`;
+
+    document.body.appendChild(el);
+
+    // Click outside = cancel
+    el.addEventListener('click', e => { if (e.target === el) closeConfirmDialog(); });
+
+    document.getElementById('confirmDialogCancel').onclick = closeConfirmDialog;
+    document.getElementById('confirmDialogOk').onclick = () => {
+        closeConfirmDialog();
+        onConfirm();
+    };
+}
+
+function closeConfirmDialog() {
+    const el = document.getElementById('confirmDialog');
+    if (el) el.remove();
 }
 
 async function viewScanDetail(scanId) {
@@ -2586,7 +2762,7 @@ async function loadReports() {
 
             <!-- Card header -->
             <div style="padding:14px 18px;background:rgba(255,255,255,0.03);border-bottom:1px solid rgba(255,255,255,0.06);display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px">
-                <div>
+                <div style="flex:1;min-width:0">
                     <div style="font-size:14px;font-weight:700;color:var(--text-primary)">${target}</div>
                     <div style="font-size:11px;color:var(--text-muted);margin-top:2px">
                         <i class="fas fa-clock" style="margin-right:4px"></i>${report.date || formatDate(scan.started)}
@@ -2599,6 +2775,18 @@ async function loadReports() {
                     ${c.MEDIUM   ? `<span class="sev-badge MEDIUM">🟡 ${c.MEDIUM} MED</span>`       : ''}
                     ${c.LOW      ? `<span class="sev-badge LOW">🟢 ${c.LOW} LOW</span>`             : ''}
                     ${c.INFO     ? `<span class="sev-badge INFO">🔵 ${c.INFO} INFO</span>`          : ''}
+                    <!-- Delete button -->
+                    <button onclick="confirmDeleteScan('${scan.id}','${escapeHtml(scan.target||'')}')"
+                        title="Hapus scan ini"
+                        style="margin-left:4px;background:rgba(239,68,68,0.1);
+                               border:1px solid rgba(239,68,68,0.25);border-radius:6px;
+                               color:#f87171;padding:5px 10px;cursor:pointer;font-size:11px;
+                               display:inline-flex;align-items:center;gap:5px;
+                               transition:background 0.15s"
+                        onmouseover="this.style.background='rgba(239,68,68,0.25)'"
+                        onmouseout="this.style.background='rgba(239,68,68,0.1)'">
+                        <i class="fas fa-trash-alt"></i> Hapus
+                    </button>
                 </div>
             </div>
 
