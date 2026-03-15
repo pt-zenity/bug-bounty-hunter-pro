@@ -1523,35 +1523,206 @@ function onPageNucleiEnter() {
 
 
 
+// ─── SQLMap Live SSE Scanner ──────────────────────────────────────────────────
+let _sqlmapAbortCtrl = null;   // AbortController for fetch stream
+let _sqlmapRunning   = false;
+
+function stopSqlmap() {
+    if (_sqlmapAbortCtrl) { _sqlmapAbortCtrl.abort(); }
+    _sqlmapRunning = false;
+    const runBtn  = document.getElementById('sqlmapRunBtn');
+    const stopBtn = document.getElementById('sqlmapStopBtn');
+    const spinner = document.getElementById('sqlmapSpinner');
+    const status  = document.getElementById('sqlmapStatus');
+    if (runBtn)  runBtn.style.display  = '';
+    if (stopBtn) stopBtn.style.display = 'none';
+    if (spinner) spinner.style.display = 'none';
+    if (status)  status.textContent    = 'Scan stopped.';
+}
+
+function sqlmapPreset(preset) {
+    const level   = document.getElementById('sqlmapLevel');
+    const risk    = document.getElementById('sqlmapRisk');
+    const tech    = document.getElementById('sqlmapTechnique');
+    const forms   = document.getElementById('sqlmapForms');
+    const dbs     = document.getElementById('sqlmapDbs');
+    const tables  = document.getElementById('sqlmapTables');
+    const tamper  = document.getElementById('sqlmapTamper');
+    const crawl   = document.getElementById('sqlmapCrawl');
+
+    // reset
+    if (forms)  forms.checked  = false;
+    if (dbs)    dbs.checked    = false;
+    if (tables) tables.checked = false;
+    if (tamper) tamper.value   = '';
+    if (crawl)  crawl.value    = '0';
+
+    const map = {
+        quick:      { level:'1', risk:'1', tech:'BET' },
+        standard:   { level:'2', risk:'1', tech:'BEUSTQ' },
+        thorough:   { level:'3', risk:'2', tech:'BEUSTQ' },
+        aggressive: { level:'5', risk:'3', tech:'BEUSTQ' },
+        forms:      { level:'2', risk:'1', tech:'BET',  forms:true, crawl:'1' },
+    };
+    const p = map[preset] || map.quick;
+    if (level)  level.value  = p.level  || '1';
+    if (risk)   risk.value   = p.risk   || '1';
+    if (tech)   tech.value   = p.tech   || 'BEUSTQ';
+    if (forms && p.forms) forms.checked  = true;
+    if (crawl && p.crawl) crawl.value    = p.crawl;
+    if (p.dbs    && dbs)    dbs.checked    = true;
+    if (p.tables && tables) tables.checked = true;
+    showToast(`Preset "${preset}" applied`, 'info');
+}
+
 async function runSqlmap() {
-    const targetEl  = document.getElementById('sqlmapTarget');
-    const paramEl   = document.getElementById('sqlmapParam');
-    const resultCard    = document.getElementById('sqlmapResult');
-    const resultContent = document.getElementById('sqlmapResultContent');
-    if (!targetEl) return;
-    const target = targetEl.value.trim();
-    const param  = paramEl ? paramEl.value.trim() : '';
+    if (_sqlmapRunning) { showToast('Scan already running', 'warning'); return; }
+
+    // ── collect inputs ──
+    const target   = (document.getElementById('sqlmapTarget')  ?.value || '').trim();
+    const param    = (document.getElementById('sqlmapParam')   ?.value || '').trim();
+    const dbms     = (document.getElementById('sqlmapDbms')    ?.value || '').trim();
+    const level    = (document.getElementById('sqlmapLevel')   ?.value || '1');
+    const risk     = (document.getElementById('sqlmapRisk')    ?.value || '1');
+    const tech     = (document.getElementById('sqlmapTechnique')?.value || 'BEUSTQ');
+    const tamper   = (document.getElementById('sqlmapTamper')  ?.value || '').trim();
+    const crawl    = (document.getElementById('sqlmapCrawl')   ?.value || '0');
+    const forms    =  document.getElementById('sqlmapForms')   ?.checked || false;
+    const enumDbs  =  document.getElementById('sqlmapDbs')     ?.checked || false;
+    const enumTbls =  document.getElementById('sqlmapTables')  ?.checked || false;
+
     if (!target) { showToast('Please enter a target URL', 'error'); return; }
 
-    showLoading('Running SQLMap scan… this may take up to 2 minutes');
-    resultCard.style.display = 'none';
+    // ── UI: running state ──
+    _sqlmapRunning = true;
+    _sqlmapAbortCtrl = new AbortController();
+
+    const runBtn       = document.getElementById('sqlmapRunBtn');
+    const stopBtn      = document.getElementById('sqlmapStopBtn');
+    const consoleCard  = document.getElementById('sqlmapConsoleCard');
+    const consoleEl    = document.getElementById('sqlmapConsole');
+    const spinner      = document.getElementById('sqlmapSpinner');
+    const statusEl     = document.getElementById('sqlmapStatus');
+    const resultCard   = document.getElementById('sqlmapResult');
+    const resultContent= document.getElementById('sqlmapResultContent');
+    const resultBadge  = document.getElementById('sqlmapResultBadge');
+
+    if (runBtn)      runBtn.style.display  = 'none';
+    if (stopBtn)     stopBtn.style.display = '';
+    if (consoleCard) consoleCard.style.display = '';
+    if (resultCard)  resultCard.style.display  = 'none';
+    if (spinner)     spinner.style.display = '';
+    if (statusEl)    statusEl.textContent  = 'Initializing sqlmap…';
+    if (consoleEl)   consoleEl.innerHTML   = '';
+
+    // colour map for log line types
+    const lineColors = {
+        critical: '#f87171',
+        payload:  '#f59e0b',
+        warning:  '#fcd34d',
+        info:     '#94a3b8',
+        error:    '#fc8181',
+        success:  '#34d399',
+        log:      '#8b9ab4',
+    };
+
+    let lineCount = 0;
+
+    function appendLine(text, type) {
+        if (!consoleEl) return;
+        const color = lineColors[type] || lineColors.log;
+        const div   = document.createElement('div');
+        div.style.cssText = `color:${color};word-break:break-all;margin-bottom:2px`;
+        div.textContent   = text;
+        consoleEl.appendChild(div);
+        lineCount++;
+        // auto-scroll
+        consoleEl.scrollTop = consoleEl.scrollHeight;
+        if (statusEl) statusEl.textContent = `Lines received: ${lineCount}`;
+    }
+
+    // ── POST to stream endpoint using fetch + ReadableStream ──
+    const body = {
+        target, level: parseInt(level), risk: parseInt(risk),
+        technique: tech, crawl: parseInt(crawl),
+        forms, dbs: enumDbs, tables: enumTbls,
+    };
+    if (param)  body.param  = param;
+    if (dbms)   body.dbms   = dbms;
+    if (tamper) body.tamper = tamper;
+
     try {
-        const body = { target };
-        if (param) body.param = param;
-        const resp = await fetch(`${API_BASE}/tools/sqlmap`, {
-            method: 'POST',
+        const resp = await fetch(`${API_BASE}/tools/sqlmap/stream`, {
+            method:  'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
+            body:    JSON.stringify(body),
+            signal:  _sqlmapAbortCtrl.signal,
         });
-        const data = await resp.json();
-        hideLoading();
-        resultCard.style.display = 'block';
-        renderVulnFindingsResults(resultContent, data, 'SQLMap');
+
+        if (!resp.ok) {
+            throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
+        }
+
+        const reader  = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let   buffer  = '';
+
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+
+            // SSE: split on double-newline
+            const parts = buffer.split('\n\n');
+            buffer = parts.pop();   // keep incomplete chunk
+
+            for (const part of parts) {
+                const line = part.replace(/^data:\s*/, '').trim();
+                if (!line) continue;
+                let msg;
+                try { msg = JSON.parse(line); } catch { continue; }
+
+                if (msg.type === 'done') {
+                    // scan finished
+                    if (spinner) spinner.style.display = 'none';
+                    if (statusEl) statusEl.textContent = `Scan complete — ${lineCount} lines`;
+                    appendLine('─── SCAN COMPLETE ───', 'success');
+
+                } else if (msg.type === 'result') {
+                    // final structured result
+                    if (resultCard)   resultCard.style.display   = '';
+                    if (resultContent) renderVulnFindingsResults(resultContent, msg.data, 'SQLMap');
+                    const count = (msg.data.findings || []).length;
+                    const inj   = (msg.data.injectable_params || []).length;
+                    if (resultBadge) {
+                        if (inj > 0) {
+                            resultBadge.style.cssText = 'font-size:11px;padding:3px 10px;border-radius:20px;background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.3)';
+                            resultBadge.textContent   = `💉 INJECTABLE — ${inj} param(s), ${count} finding(s)`;
+                        } else {
+                            resultBadge.style.cssText = 'font-size:11px;padding:3px 10px;border-radius:20px;background:rgba(16,185,129,0.1);color:#34d399;border:1px solid rgba(16,185,129,0.2)';
+                            resultBadge.textContent   = `✅ Not injectable — ${count} finding(s)`;
+                        }
+                    }
+                } else {
+                    // log/info/warning/etc.
+                    appendLine(msg.line || '', msg.type || 'log');
+                }
+            }
+        }
+
     } catch(err) {
-        hideLoading();
-        showToast('SQLMap error: ' + err.message, 'error');
-        resultCard.style.display = 'block';
-        resultContent.innerHTML = `<div class="empty-state"><p>Error: ${escapeHtml(err.message)}</p></div>`;
+        if (err.name === 'AbortError') {
+            appendLine('⚠ Scan aborted by user.', 'warning');
+        } else {
+            appendLine(`Error: ${err.message}`, 'error');
+            showToast('SQLMap error: ' + err.message, 'error');
+        }
+    } finally {
+        _sqlmapRunning  = false;
+        _sqlmapAbortCtrl = null;
+        if (runBtn)  runBtn.style.display  = '';
+        if (stopBtn) stopBtn.style.display = 'none';
+        if (spinner) spinner.style.display = 'none';
     }
 }
 
