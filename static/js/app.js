@@ -78,6 +78,12 @@ function navigateTo(pageName) {
         xss: 'XSS Scanner',
         sqli: 'SQL Injection Scanner',
         methods: 'HTTP Methods Checker',
+        whois: 'WHOIS Lookup',
+        subfinder: 'Subdomain Finder',
+        nikto: 'Nikto Web Scanner',
+        ffuf: 'Directory Fuzzer (ffuf)',
+        nuclei: 'Nuclei Vulnerability Scanner',
+        whatweb: 'WhatWeb Tech Scanner',
         cvss: 'CVSS Calculator',
         poc: 'PoC Generator',
         reports: 'Reports'
@@ -118,13 +124,15 @@ function renderToolStatus(tools) {
     if (!container) return;
     
     const toolIcons = {
-        nmap: 'fas fa-network-wired',
+        nmap:      'fas fa-network-wired',
         subfinder: 'fas fa-search',
-        nuclei: 'fas fa-radiation',
-        ffuf: 'fas fa-stream',
-        curl: 'fas fa-terminal',
-        dig: 'fas fa-globe',
-        whois: 'fas fa-id-card'
+        nuclei:    'fas fa-radiation',
+        ffuf:      'fas fa-stream',
+        curl:      'fas fa-terminal',
+        dig:       'fas fa-globe',
+        whois:     'fas fa-id-card',
+        whatweb:   'fas fa-fingerprint',
+        nikto:     'fas fa-bug'
     };
     
     container.innerHTML = Object.entries(tools).map(([tool, available]) => `
@@ -562,6 +570,8 @@ function closeDetail() {
 // ─── Individual Tools ─────────────────────────────────────────────────────────
 
 async function runTool(tool) {
+    // Nuclei has a severity dropdown — delegate
+    if (tool === 'nuclei') { runNuclei(); return; }
     const targetEl = document.getElementById(`${tool}Target`);
     const resultCard = document.getElementById(`${tool}Result`);
     const resultContent = document.getElementById(`${tool}ResultContent`);
@@ -600,6 +610,12 @@ async function runTool(tool) {
             case 'xss': renderVulnFindingsResults(resultContent, data, 'XSS'); break;
             case 'sqli': renderVulnFindingsResults(resultContent, data, 'SQLi'); break;
             case 'methods': renderMethodsResults(resultContent, data); break;
+            case 'whois': renderWhoisResults(resultContent, data); break;
+            case 'subfinder': renderSubfinderResults(resultContent, data); break;
+            case 'nikto': renderNiktoResults(resultContent, data); break;
+            case 'ffuf': renderFfufResults(resultContent, data); break;
+            case 'nuclei': renderNucleiResults(resultContent, data); break;
+            case 'whatweb': renderWhatwebResults(resultContent, data); break;
         }
         
     } catch (err) {
@@ -607,6 +623,36 @@ async function runTool(tool) {
         showToast('Tool error: ' + err.message, 'error');
         resultContent.innerHTML = `<div class="empty-state"><i class="fas fa-exclamation-triangle"></i><p>Error: ${escapeHtml(err.message)}</p></div>`;
         resultCard.style.display = 'block';
+    }
+}
+
+async function runNuclei() {
+    const targetEl = document.getElementById('nucleiTarget');
+    const sevEl    = document.getElementById('nucleiSeverity');
+    const resultCard    = document.getElementById('nucleiResult');
+    const resultContent = document.getElementById('nucleiResultContent');
+    if (!targetEl) return;
+    const target   = targetEl.value.trim();
+    const severity = sevEl ? sevEl.value : 'medium,high,critical';
+    if (!target) { showToast('Please enter a target', 'error'); return; }
+
+    showLoading('Running Nuclei scan… this may take up to 2 minutes');
+    resultCard.style.display = 'none';
+    try {
+        const resp = await fetch(`${API_BASE}/tools/nuclei`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ target, severity })
+        });
+        const data = await resp.json();
+        hideLoading();
+        resultCard.style.display = 'block';
+        renderNucleiResults(resultContent, data);
+    } catch(err) {
+        hideLoading();
+        showToast('Nuclei error: ' + err.message, 'error');
+        resultCard.style.display = 'block';
+        resultContent.innerHTML = `<div class="empty-state"><p>Error: ${escapeHtml(err.message)}</p></div>`;
     }
 }
 
@@ -1048,6 +1094,193 @@ function renderMethodsResults(container, data) {
     `;
 }
 
+
+
+// ─── New Tool Renderers ───────────────────────────────────────────────────────
+
+function renderWhoisResults(container, data) {
+    if (data.error) {
+        container.innerHTML = `<div class="empty-state"><i class="fas fa-times-circle fa-2x" style="color:var(--red)"></i><p>${escapeHtml(data.error)}</p></div>`;
+        return;
+    }
+    const fields = [
+        ['Registrar', data.registrar], ['Created', data.created],
+        ['Updated', data.updated], ['Expires', data.expires],
+        ['Organisation', data.org], ['Country', data.country],
+        ['DNSSEC', data.dnssec]
+    ].filter(([,v]) => v);
+
+    container.innerHTML = `
+        <div style="margin-bottom:12px;font-size:12px;color:var(--text-muted)">
+            WHOIS for <strong style="color:var(--accent)">${escapeHtml(data.host || '')}</strong>
+        </div>
+        ${fields.length ? `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">
+            ${fields.map(([k, v]) => `
+                <div style="background:rgba(255,255,255,0.04);border-radius:6px;padding:10px">
+                    <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">${k}</div>
+                    <div style="font-size:13px;color:var(--text-primary);word-break:break-all">${escapeHtml(v)}</div>
+                </div>`).join('')}
+        </div>` : ''}
+        ${data.nameservers?.length ? `
+        <div style="margin-bottom:12px">
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">Name Servers</div>
+            ${data.nameservers.map(ns => `<div class="dns-record"><span class="dns-type" style="background:rgba(16,185,129,0.1);color:#10b981">NS</span><span class="dns-value">${escapeHtml(ns)}</span></div>`).join('')}
+        </div>` : ''}
+        <details style="margin-top:12px">
+            <summary style="font-size:11px;color:var(--text-muted);cursor:pointer">Raw WHOIS output</summary>
+            <pre style="font-size:10px;background:rgba(255,255,255,0.03);padding:10px;border-radius:6px;overflow-x:auto;margin-top:8px;white-space:pre-wrap;max-height:300px;overflow-y:auto">${escapeHtml((data.raw||'').slice(0,3000))}</pre>
+        </details>
+    `;
+}
+
+function renderSubfinderResults(container, data) {
+    const subs = data.subdomains || [];
+    const findings = data.findings || [];
+    if (subs.length === 0) {
+        container.innerHTML = `<div class="empty-state"><i class="fas fa-search fa-2x"></i><p>No subdomains discovered for <strong>${escapeHtml(data.host||'')}</strong></p></div>`;
+        return;
+    }
+    container.innerHTML = `
+        <div style="margin-bottom:12px;font-size:12px;color:var(--text-muted)">
+            Found <strong style="color:var(--accent)">${subs.length}</strong> subdomain(s) for ${escapeHtml(data.host||'')}
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+            ${subs.map(s => `
+                <a href="https://${escapeHtml(s)}" target="_blank" style="
+                    display:inline-flex;align-items:center;gap:4px;
+                    background:rgba(59,130,246,0.08);color:var(--accent);
+                    padding:4px 10px;border-radius:20px;font-size:11px;
+                    font-family:var(--mono);text-decoration:none;
+                    border:1px solid rgba(59,130,246,0.2);
+                    transition:background 0.2s">
+                    <i class="fas fa-external-link-alt" style="font-size:9px"></i>
+                    ${escapeHtml(s)}
+                </a>`).join('')}
+        </div>
+    `;
+}
+
+function renderNiktoResults(container, data) {
+    const findings = data.findings || [];
+    if (findings.length === 0) {
+        container.innerHTML = `<div class="empty-state"><i class="fas fa-shield-alt fa-2x" style="color:var(--green)"></i><p style="color:var(--green)">Nikto found no notable vulnerabilities</p></div>`;
+        return;
+    }
+    const sevColors = { CRITICAL:'var(--red)', HIGH:'#f97316', MEDIUM:'#f59e0b', LOW:'#3b82f6', INFO:'var(--text-muted)' };
+    container.innerHTML = `
+        <div style="margin-bottom:12px;font-size:12px;color:var(--text-muted)">
+            Nikto found <strong style="color:var(--orange)">${findings.length}</strong> issue(s) on ${escapeHtml(data.target||'')}
+        </div>
+        ${findings.map(f => `
+            <div class="header-finding" style="margin-bottom:8px;border-left:3px solid ${sevColors[f.severity]||'#888'}">
+                <div class="header-finding-top">
+                    <span class="sev-badge ${f.severity}">${f.severity}</span>
+                    <span style="font-size:12px;color:var(--text-primary)">${escapeHtml(f.description)}</span>
+                </div>
+            </div>`).join('')}
+        <details style="margin-top:16px">
+            <summary style="font-size:11px;color:var(--text-muted);cursor:pointer">Raw Nikto Output</summary>
+            <pre style="font-size:10px;background:rgba(255,255,255,0.03);padding:10px;border-radius:6px;overflow-x:auto;margin-top:8px;white-space:pre-wrap;max-height:300px;overflow-y:auto">${escapeHtml((data.raw||'').slice(0,3000))}</pre>
+        </details>
+    `;
+}
+
+function renderFfufResults(container, data) {
+    const findings = data.findings || [];
+    if (findings.length === 0) {
+        container.innerHTML = `<div class="empty-state"><i class="fas fa-folder fa-2x" style="color:var(--green)"></i><p style="color:var(--green)">No hidden directories found</p></div>`;
+        return;
+    }
+    const sevColors = { HIGH:'#f97316', MEDIUM:'#f59e0b', LOW:'#3b82f6', INFO:'var(--text-muted)' };
+    container.innerHTML = `
+        <div style="margin-bottom:12px;font-size:12px;color:var(--text-muted)">
+            ffuf found <strong style="color:var(--accent)">${findings.length}</strong> path(s) on ${escapeHtml(data.target||'')}
+        </div>
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead>
+                <tr style="border-bottom:1px solid rgba(255,255,255,0.08)">
+                    <th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Status</th>
+                    <th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Path</th>
+                    <th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Severity</th>
+                    <th style="text-align:right;padding:6px 8px;color:var(--text-muted)">Size</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${findings.map(f => `
+                    <tr style="border-bottom:1px solid rgba(255,255,255,0.04)">
+                        <td style="padding:6px 8px">
+                            <span style="font-family:var(--mono);font-size:11px;background:rgba(59,130,246,0.1);color:var(--accent);padding:2px 6px;border-radius:4px">${f.status||'?'}</span>
+                        </td>
+                        <td style="padding:6px 8px;font-family:var(--mono);font-size:11px">
+                            <a href="${escapeHtml(f.url||'#')}" target="_blank" style="color:var(--accent)">${escapeHtml('/'+f.word)}</a>
+                        </td>
+                        <td style="padding:6px 8px"><span class="sev-badge ${f.severity}">${f.severity}</span></td>
+                        <td style="padding:6px 8px;text-align:right;color:var(--text-muted);font-size:11px">${f.length||0}B</td>
+                    </tr>`).join('')}
+            </tbody>
+        </table>
+    `;
+}
+
+function renderNucleiResults(container, data) {
+    const findings = data.findings || [];
+    if (findings.length === 0) {
+        container.innerHTML = `<div class="empty-state"><i class="fas fa-radiation fa-2x" style="color:var(--green)"></i><p style="color:var(--green)">No Nuclei template matches found</p></div>`;
+        return;
+    }
+    const sevColors = { CRITICAL:'var(--red)', HIGH:'#f97316', MEDIUM:'#f59e0b', LOW:'#3b82f6', INFO:'var(--text-muted)' };
+    container.innerHTML = `
+        <div style="margin-bottom:12px;font-size:12px;color:var(--text-muted)">
+            Nuclei found <strong style="color:var(--red)">${findings.length}</strong> vulnerability match(es)
+        </div>
+        ${findings.map(f => `
+            <div class="header-finding" style="margin-bottom:10px;border-left:3px solid ${sevColors[f.severity]||'#888'}">
+                <div class="header-finding-top">
+                    <span class="sev-badge ${f.severity}">${f.severity}</span>
+                    <span style="font-weight:600;font-size:13px;color:var(--text-primary)">${escapeHtml(f.name||f.template||'')}</span>
+                    ${f.template ? `<span style="font-size:10px;font-family:var(--mono);color:var(--text-muted)">${escapeHtml(f.template)}</span>` : ''}
+                </div>
+                <div class="header-finding-body" style="padding-top:6px">
+                    ${f.description ? `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px">${escapeHtml(f.description)}</div>` : ''}
+                    ${f.url ? `<div style="font-size:11px;font-family:var(--mono);background:rgba(255,255,255,0.04);padding:3px 8px;border-radius:4px">
+                        <a href="${escapeHtml(f.url)}" target="_blank" style="color:var(--accent)">${escapeHtml(f.url)}</a>
+                    </div>` : ''}
+                    ${f.tags ? `<div style="font-size:10px;color:var(--text-muted);margin-top:4px">Tags: ${escapeHtml(f.tags)}</div>` : ''}
+                </div>
+            </div>`).join('')}
+    `;
+}
+
+function renderWhatwebResults(container, data) {
+    const techs = data.technologies || [];
+    if (techs.length === 0) {
+        container.innerHTML = `<div class="empty-state"><i class="fas fa-fingerprint fa-2x"></i><p>No technologies detected by WhatWeb</p></div>`;
+        return;
+    }
+    container.innerHTML = `
+        <div style="margin-bottom:12px;font-size:12px;color:var(--text-muted)">
+            WhatWeb detected <strong style="color:var(--accent)">${techs.length}</strong> technology(ies) on ${escapeHtml(data.target||'')}
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px">
+            ${techs.map(t => `
+                <div style="background:rgba(255,255,255,0.04);border-radius:8px;padding:10px 12px;display:flex;align-items:center;gap:8px">
+                    <div style="width:32px;height:32px;border-radius:6px;background:rgba(99,102,241,0.15);display:flex;align-items:center;justify-content:center">
+                        <i class="fas fa-code" style="color:#818cf8;font-size:13px"></i>
+                    </div>
+                    <div>
+                        <div style="font-size:13px;font-weight:600;color:var(--text-primary)">${escapeHtml(t.name||'')}</div>
+                        ${t.version ? `<div style="font-size:11px;color:var(--accent)">v${escapeHtml(t.version)}</div>` : ''}
+                        <div style="font-size:10px;color:var(--text-muted)">${escapeHtml(t.source||'whatweb')}</div>
+                    </div>
+                </div>`).join('')}
+        </div>
+        <details style="margin-top:16px">
+            <summary style="font-size:11px;color:var(--text-muted);cursor:pointer">Raw WhatWeb output</summary>
+            <pre style="font-size:10px;background:rgba(255,255,255,0.03);padding:10px;border-radius:6px;overflow-x:auto;margin-top:8px;white-space:pre-wrap">${escapeHtml((data.raw||'').slice(0,2000))}</pre>
+        </details>
+    `;
+}
 
 
 function setCVSS(btn, metric, value) {

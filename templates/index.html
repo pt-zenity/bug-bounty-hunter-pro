@@ -86,6 +86,34 @@
         </div>
         
         <div class="nav-section">
+            <div class="nav-label">RECON TOOLS</div>
+            <a href="#" class="nav-item" data-page="whois">
+                <i class="fas fa-id-card"></i>
+                <span>WHOIS Lookup</span>
+            </a>
+            <a href="#" class="nav-item" data-page="subfinder">
+                <i class="fas fa-search"></i>
+                <span>Subfinder</span>
+            </a>
+            <a href="#" class="nav-item" data-page="whatweb">
+                <i class="fas fa-fingerprint"></i>
+                <span>WhatWeb</span>
+            </a>
+            <a href="#" class="nav-item" data-page="nikto">
+                <i class="fas fa-bug"></i>
+                <span>Nikto Scanner</span>
+            </a>
+            <a href="#" class="nav-item" data-page="ffuf">
+                <i class="fas fa-stream"></i>
+                <span>ffuf Fuzzer</span>
+            </a>
+            <a href="#" class="nav-item" data-page="nuclei">
+                <i class="fas fa-radiation"></i>
+                <span>Nuclei</span>
+            </a>
+        </div>
+        
+        <div class="nav-section">
             <div class="nav-label">ANALYSIS</div>
             <a href="#" class="nav-item" data-page="cvss">
                 <i class="fas fa-calculator"></i>
@@ -656,7 +684,142 @@
                     </div>
                 </div>
             </div>
-            
+
+            <!-- WHOIS PAGE -->
+            <div class="page" id="page-whois">
+                <div class="tool-layout">
+                    <div class="card">
+                        <div class="card-header"><h2><i class="fas fa-id-card"></i> WHOIS Lookup</h2></div>
+                        <div class="card-body">
+                            <div class="form-group">
+                                <label class="form-label">Domain</label>
+                                <input type="text" id="whoisTarget" placeholder="example.com" autocomplete="off">
+                            </div>
+                            <div class="info-note"><i class="fas fa-info-circle"></i> Returns registrar, creation/expiry dates, nameservers & raw WHOIS</div>
+                            <button class="btn btn-primary btn-full" onclick="runTool('whois')"><i class="fas fa-play"></i> Run WHOIS</button>
+                        </div>
+                    </div>
+                    <div class="card tool-result-card" id="whoisResult" style="display:none">
+                        <div class="card-header"><h2><i class="fas fa-id-card"></i> WHOIS Results</h2></div>
+                        <div class="card-body" id="whoisResultContent"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SUBFINDER PAGE -->
+            <div class="page" id="page-subfinder">
+                <div class="tool-layout">
+                    <div class="card">
+                        <div class="card-header"><h2><i class="fas fa-search"></i> Subfinder – Subdomain Enumeration</h2></div>
+                        <div class="card-body">
+                            <div class="form-group">
+                                <label class="form-label">Root Domain</label>
+                                <input type="text" id="subfinderTarget" placeholder="example.com" autocomplete="off">
+                            </div>
+                            <div class="info-note"><i class="fas fa-info-circle"></i> Passive subdomain discovery using multiple data sources</div>
+                            <button class="btn btn-primary btn-full" onclick="runTool('subfinder')"><i class="fas fa-play"></i> Find Subdomains</button>
+                        </div>
+                    </div>
+                    <div class="card tool-result-card" id="subfinderResult" style="display:none">
+                        <div class="card-header"><h2><i class="fas fa-sitemap"></i> Subdomains Found</h2></div>
+                        <div class="card-body" id="subfinderResultContent"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- WHATWEB PAGE -->
+            <div class="page" id="page-whatweb">
+                <div class="tool-layout">
+                    <div class="card">
+                        <div class="card-header"><h2><i class="fas fa-fingerprint"></i> WhatWeb Technology Scanner</h2></div>
+                        <div class="card-body">
+                            <div class="form-group">
+                                <label class="form-label">Target URL</label>
+                                <input type="text" id="whatwebTarget" placeholder="https://example.com" autocomplete="off">
+                            </div>
+                            <div class="info-note"><i class="fas fa-info-circle"></i> Identifies CMSs, frameworks, server software, analytics & more</div>
+                            <button class="btn btn-primary btn-full" onclick="runTool('whatweb')"><i class="fas fa-play"></i> Run WhatWeb</button>
+                        </div>
+                    </div>
+                    <div class="card tool-result-card" id="whatwebResult" style="display:none">
+                        <div class="card-header"><h2><i class="fas fa-layer-group"></i> WhatWeb Results</h2></div>
+                        <div class="card-body" id="whatwebResultContent"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- NIKTO PAGE -->
+            <div class="page" id="page-nikto">
+                <div class="tool-layout">
+                    <div class="card">
+                        <div class="card-header"><h2><i class="fas fa-bug"></i> Nikto Web Scanner</h2></div>
+                        <div class="card-body">
+                            <div class="form-group">
+                                <label class="form-label">Target URL</label>
+                                <input type="text" id="niktoTarget" placeholder="https://example.com" autocomplete="off">
+                            </div>
+                            <div class="info-note"><i class="fas fa-info-circle"></i> Scans for dangerous files, outdated software, server misconfigurations (~60s)</div>
+                            <button class="btn btn-primary btn-full" onclick="runTool('nikto')"><i class="fas fa-play"></i> Run Nikto Scan</button>
+                        </div>
+                    </div>
+                    <div class="card tool-result-card" id="niktoResult" style="display:none">
+                        <div class="card-header"><h2><i class="fas fa-bug"></i> Nikto Findings</h2></div>
+                        <div class="card-body" id="niktoResultContent"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- FFUF PAGE -->
+            <div class="page" id="page-ffuf">
+                <div class="tool-layout">
+                    <div class="card">
+                        <div class="card-header"><h2><i class="fas fa-stream"></i> ffuf – Directory Fuzzer</h2></div>
+                        <div class="card-body">
+                            <div class="form-group">
+                                <label class="form-label">Target URL</label>
+                                <input type="text" id="ffufTarget" placeholder="https://example.com" autocomplete="off">
+                            </div>
+                            <div class="info-note"><i class="fas fa-info-circle"></i> Fast web fuzzer probing 40+ common admin, API & config paths</div>
+                            <button class="btn btn-primary btn-full" onclick="runTool('ffuf')"><i class="fas fa-play"></i> Start Fuzzing</button>
+                        </div>
+                    </div>
+                    <div class="card tool-result-card" id="ffufResult" style="display:none">
+                        <div class="card-header"><h2><i class="fas fa-folder-open"></i> ffuf Results</h2></div>
+                        <div class="card-body" id="ffufResultContent"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- NUCLEI PAGE -->
+            <div class="page" id="page-nuclei">
+                <div class="tool-layout">
+                    <div class="card">
+                        <div class="card-header"><h2><i class="fas fa-radiation"></i> Nuclei Vulnerability Scanner</h2></div>
+                        <div class="card-body">
+                            <div class="form-group">
+                                <label class="form-label">Target URL</label>
+                                <input type="text" id="nucleiTarget" placeholder="https://example.com" autocomplete="off">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Severity Filter</label>
+                                <select id="nucleiSeverity" style="width:100%;padding:10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:8px;color:var(--text-primary)">
+                                    <option value="medium,high,critical">Medium + High + Critical</option>
+                                    <option value="critical">Critical Only</option>
+                                    <option value="high,critical">High + Critical</option>
+                                    <option value="low,medium,high,critical">All (Low+)</option>
+                                </select>
+                            </div>
+                            <div class="info-note"><i class="fas fa-info-circle"></i> Template-based scanner — CVEs, misconfigs, exposed panels (~2min)</div>
+                            <button class="btn btn-primary btn-full" onclick="runNuclei()"><i class="fas fa-play"></i> Run Nuclei Scan</button>
+                        </div>
+                    </div>
+                    <div class="card tool-result-card" id="nucleiResult" style="display:none">
+                        <div class="card-header"><h2><i class="fas fa-radiation-alt"></i> Nuclei Findings</h2></div>
+                        <div class="card-body" id="nucleiResultContent"></div>
+                    </div>
+                </div>
+            </div>
+
             <!-- CVSS CALCULATOR PAGE -->
             <div class="page" id="page-cvss">
                 <div class="cvss-layout">

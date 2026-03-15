@@ -91,6 +91,326 @@ def resolve_target(target):
         results.append({"type": "ERROR", "value": str(e)})
     return results
 
+# ─── Real Tool Wrappers ────────────────────────────────────────────────────────
+
+def _run_cmd(cmd, timeout=30):
+    """Run a subprocess command safely, return (stdout, stderr, returncode)."""
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True,
+            timeout=timeout, env=dict(os.environ, HOME='/home/user')
+        )
+        return result.stdout, result.stderr, result.returncode
+    except subprocess.TimeoutExpired:
+        return "", "Command timed out", -1
+    except FileNotFoundError:
+        return "", f"Tool not found: {cmd[0]}", -1
+    except Exception as e:
+        return "", str(e), -1
+
+def run_dig(target):
+    """Real dig DNS lookup — augments python dns.resolver output."""
+    findings = []
+    host = clean_target(target)
+    out, err, rc = _run_cmd(['dig', '+noall', '+answer', '+short',
+                              host, 'A', 'AAAA', 'MX', 'NS', 'TXT'], timeout=15)
+    if rc == 0 and out.strip():
+        # Parse the raw dig output lines into structured records
+        for line in out.strip().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            findings.append({"raw": line})
+    # Also try zone transfer (common security finding)
+    ns_out, _, _ = _run_cmd(['dig', '+short', 'NS', host], timeout=10)
+    ns_servers = [s.strip().rstrip('.') for s in ns_out.strip().splitlines() if s.strip()]
+    for ns in ns_servers[:3]:
+        axfr_out, _, axfr_rc = _run_cmd(['dig', f'@{ns}', host, 'AXFR', '+short'], timeout=8)
+        if axfr_rc == 0 and axfr_out.strip() and len(axfr_out) > 100:
+            findings.append({
+                "type": "ZONE_TRANSFER",
+                "severity": "CRITICAL",
+                "ns": ns,
+                "description": f"DNS Zone Transfer allowed on {ns}!",
+                "data": axfr_out[:500]
+            })
+    return {"host": host, "raw_output": out, "ns_servers": ns_servers,
+            "zone_transfer_findings": [f for f in findings if f.get("type") == "ZONE_TRANSFER"]}
+
+def run_whois(target):
+    """Real whois lookup."""
+    host = clean_target(target)
+    out, err, rc = _run_cmd(['whois', host], timeout=20)
+    if rc != 0 or not out.strip():
+        return {"host": host, "error": err or "No whois data", "raw": ""}
+
+    info = {"host": host, "raw": out}
+    # Extract key fields
+    for line in out.splitlines():
+        ll = line.lower()
+        if ':' not in line:
+            continue
+        k, _, v = line.partition(':')
+        k, v = k.strip(), v.strip()
+        kl = k.lower()
+        if not v or v.startswith('%') or v.startswith('#'):
+            continue
+        if kl in ('registrar', 'registrar name') and 'registrar' not in info:
+            info['registrar'] = v
+        elif kl in ('creation date', 'created', 'registered') and 'created' not in info:
+            info['created'] = v
+        elif kl in ('updated date', 'last updated', 'updated') and 'updated' not in info:
+            info['updated'] = v
+        elif kl in ('registry expiry date', 'expiry date', 'expires') and 'expires' not in info:
+            info['expires'] = v
+        elif kl in ('registrant organization', 'org', 'organisation') and 'org' not in info:
+            info['org'] = v
+        elif kl in ('name server', 'nserver') and 'nameservers' not in info:
+            info.setdefault('nameservers', []).append(v)
+        elif kl == 'dnssec' and 'dnssec' not in info:
+            info['dnssec'] = v
+        elif kl in ('country', 'registrant country') and 'country' not in info:
+            info['country'] = v
+    return info
+
+def run_whatweb(target):
+    """Real whatweb technology detection."""
+    url = base_url(target)
+    out, err, rc = _run_cmd(['whatweb', '--color=never', '-a', '3', '--log-brief=/dev/stderr',
+                              url], timeout=30)
+    if not out.strip() and not err.strip():
+        out, err, rc = _run_cmd(['whatweb', '--color=never', url], timeout=20)
+
+    technologies = []
+    raw_line = (out + err).strip()
+
+    # Parse WhatWeb output: "http://example.com [200 OK] Technology[v1], Tech2"
+    # Extract bracketed items
+    bracket_items = re.findall(r'(\w[\w\s.-]*?)\[([^\]]*)\]', raw_line)
+    seen = set()
+    for name, value in bracket_items:
+        name = name.strip()
+        if name.lower() in ('http', 'https', 'ftp', '') or name in seen:
+            continue
+        seen.add(name)
+        if re.match(r'^\d{3}$', value) or value.lower() in ('ok','found','not found'):
+            continue  # skip status codes
+        entry = {"name": name, "version": value if value else None, "source": "whatweb"}
+        technologies.append(entry)
+
+    # Also grab unbracketed tech names (WhatWeb brief format)
+    if not technologies:
+        parts = re.split(r',\s*', re.sub(r'\S+://\S+', '', raw_line))
+        for part in parts:
+            part = part.strip().strip(',').strip()
+            if part and len(part) > 1 and not re.match(r'^\[', part):
+                # remove trailing version info
+                name = re.split(r'\[', part)[0].strip()
+                if name and name not in seen:
+                    seen.add(name)
+                    technologies.append({"name": name, "source": "whatweb"})
+
+    return {"target": url, "technologies": technologies, "raw": raw_line, "rc": rc}
+
+def run_subfinder(target):
+    """Real subfinder subdomain enumeration."""
+    host = clean_target(target)
+    out, err, rc = _run_cmd([
+        'subfinder', '-d', host, '-silent', '-timeout', '10',
+        '-max-time', '45'
+    ], timeout=60)
+    subdomains = [s.strip() for s in out.strip().splitlines() if s.strip()]
+    # Deduplicate, remove empties
+    subdomains = sorted(set(subdomains))
+    findings = []
+    for sub in subdomains:
+        findings.append({
+            "subdomain": sub,
+            "type": "Subdomain",
+            "severity": "INFO",
+            "description": f"Subdomain discovered: {sub}"
+        })
+    return {"host": host, "subdomains": subdomains, "count": len(subdomains),
+            "findings": findings, "raw": out[:2000]}
+
+def run_nikto(target):
+    """Real nikto web vulnerability scan (quick scan, 60s max)."""
+    url = base_url(target)
+    nikto_out_file = '/tmp/nikto_scan_out.txt'
+    # Remove old output file if exists
+    try:
+        os.remove(nikto_out_file)
+    except Exception:
+        pass
+
+    out, err, rc = _run_cmd([
+        'nikto', '-h', url,
+        '-Tuning', '1234578x',
+        '-nointeractive',
+        '-timeout', '5',
+        '-maxtime', '60s',
+        '-Format', 'txt',
+        '-output', nikto_out_file
+    ], timeout=80)
+
+    # Read the output file if it was created, otherwise use stdout/stderr
+    raw = ""
+    try:
+        with open(nikto_out_file) as f:
+            raw = f.read()
+    except Exception:
+        raw = out + err
+
+    findings = []
+    for line in raw.splitlines():
+        line = line.strip()
+        # Nikto findings start with '+ ' and contain meaningful info
+        if not line.startswith('+ '):
+            continue
+        desc = line[2:].strip()
+        # Skip header/summary lines
+        if any(skip in desc.lower() for skip in ['target host:', 'target port:', 'start time:',
+                                                   'end time:', 'host(s) tested', 'nikto v',
+                                                   '0 error(s)', 'requests made']):
+            continue
+        if len(desc) < 10:
+            continue
+
+        sev = "MEDIUM"
+        desc_lc = desc.lower()
+        if any(x in desc_lc for x in ['critical', 'remote code', 'rce', 'sql inject']):
+            sev = "CRITICAL"
+        elif any(x in desc_lc for x in ['xss', 'csrf', 'injection', 'traversal', 'execute']):
+            sev = "HIGH"
+        elif any(x in desc_lc for x in ['information', 'disclosure', 'version', 'outdated',
+                                          'banner', 'allows', 'enabled']):
+            sev = "LOW"
+        findings.append({
+            "type": "Nikto Finding",
+            "severity": sev,
+            "description": desc,
+            "source": "nikto"
+        })
+    return {"target": url, "findings": findings,
+            "raw": raw[:3000], "total": len(findings)}
+
+def run_ffuf(target, wordlist=None):
+    """Real ffuf directory/endpoint fuzzer."""
+    url = base_url(target)
+    # Compact wordlist written to temp file
+    common_words = [
+        'admin', 'login', 'api', 'v1', 'v2', 'backup', 'test', 'debug',
+        'config', 'dashboard', 'panel', 'user', 'users', 'account',
+        'accounts', 'auth', 'token', 'secret', 'keys', 'upload', 'uploads',
+        'files', 'docs', 'swagger', 'graphql', 'health', 'status', 'metrics',
+        'env', 'git', 'logs', 'log', 'tmp', 'temp', 'old', 'new', 'bak',
+        'sql', 'db', 'database', 'wp-admin', 'administrator', 'phpmyadmin',
+        'phpinfo', 'actuator', 'console', 'manager', 'management', 'proxy',
+        'api/v1', 'api/v2', 'api/docs', 'swagger.json', 'openapi.json',
+        '.env', '.git', 'robots.txt', 'sitemap.xml',
+    ]
+    wl_path = '/tmp/ffuf_wordlist.txt'
+    ffuf_out = '/tmp/ffuf_out.json'
+    with open(wl_path, 'w') as f:
+        f.write('\n'.join(common_words))
+    # Remove old output
+    try: os.remove(ffuf_out)
+    except Exception: pass
+
+    out, err, rc = _run_cmd([
+        'ffuf', '-u', f'{url}/FUZZ',
+        '-w', wl_path,
+        '-mc', '200,201,204,301,302,307,401,403',
+        '-t', '20',
+        '-timeout', '5',
+        '-of', 'json', '-o', ffuf_out,
+        '-noninteractive',
+    ], timeout=70)
+
+    findings = []
+    try:
+        with open(ffuf_out) as f:
+            data = json.load(f)
+        for result in data.get('results', []):
+            word = result.get('input', {}).get('FUZZ', '')
+            status = result.get('status', 0)
+            length = result.get('length', 0)
+            full_url = result.get('url', f'{url}/{word}')
+            sev = "LOW"
+            wl = word.lower()
+            if any(x in wl for x in ['admin', 'config', 'backup', 'secret', '.env', 'sql',
+                                       'db', '.git', 'wp-admin', 'phpmyadmin', 'keys']):
+                sev = "HIGH"
+            elif any(x in wl for x in ['api', 'swagger', 'graphql', 'actuator', 'debug',
+                                         'console', 'dashboard', 'management']):
+                sev = "MEDIUM"
+            findings.append({
+                "type": "Directory Found",
+                "severity": sev,
+                "url": full_url,
+                "status": status,
+                "length": length,
+                "word": word,
+                "description": f"/{word} → HTTP {status} ({length} bytes)"
+            })
+    except Exception:
+        # fallback: try to parse any stdout lines
+        for line in (out or '').strip().splitlines():
+            line = line.strip()
+            if line and not line.startswith(':'):
+                findings.append({"type": "ffuf result", "severity": "INFO",
+                                  "description": line})
+
+    return {"target": url, "findings": findings, "count": len(findings),
+            "raw": (out or '')[:2000]}
+
+def run_nuclei(target, severity='medium,high,critical', templates='default-logins,exposed-panels,takeovers,misconfigurations'):
+    """Real nuclei vulnerability scan."""
+    url = base_url(target)
+    # Update templates once (silently if already up to date)
+    _run_cmd(['nuclei', '-update-templates', '-silent'], timeout=30)
+
+    out, err, rc = _run_cmd([
+        'nuclei', '-u', url,
+        '-severity', severity,
+        '-tags', 'cve,exposure,misconfig',
+        '-rl', '10',  # rate limit requests/sec
+        '-c', '10',   # concurrency
+        '-timeout', '5',
+        '-duc',       # disable update check
+        '-silent',
+        '-j',         # JSON output
+        '-no-color',
+        '-time-limit', '120'
+    ], timeout=150)
+
+    findings = []
+    raw = out + err
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            item = json.loads(line)
+            sev_map = {'critical': 'CRITICAL', 'high': 'HIGH', 'medium': 'MEDIUM',
+                       'low': 'LOW', 'info': 'INFO', 'unknown': 'INFO'}
+            sev = sev_map.get(item.get('info', {}).get('severity', 'info').lower(), 'INFO')
+            findings.append({
+                "type": "Nuclei Finding",
+                "severity": sev,
+                "template": item.get('template-id', ''),
+                "name": item.get('info', {}).get('name', ''),
+                "url": item.get('matched-at', url),
+                "description": item.get('info', {}).get('description', ''),
+                "tags": ', '.join(item.get('info', {}).get('tags', [])),
+                "source": "nuclei"
+            })
+        except json.JSONDecodeError:
+            # Non-JSON output line — skip
+            pass
+    return {"target": url, "findings": findings, "count": len(findings),
+            "raw": raw[:3000]}
+
 # ─── HTTP Probe ───────────────────────────────────────────────────────────────
 
 def get_http_info(target):
@@ -830,7 +1150,7 @@ def run_full_scan(scan_id, raw_target, scan_type):
         add_log(scan_id, f"🎯 Target: {target}", "info")
         active_scans[scan_id]["progress"] = 5
 
-        # ── Phase 1: DNS ──────────────────────────────────────────────────────
+        # ── Phase 1: DNS + WHOIS + Subdomains ────────────────────────────────
         active_scans[scan_id]["phase"] = "DNS Recon"
         add_log(scan_id, "📡 Phase 1: DNS Reconnaissance", "info")
         dns_recs = resolve_target(target)
@@ -838,6 +1158,38 @@ def run_full_scan(scan_id, raw_target, scan_type):
         add_log(scan_id, f"✅ DNS: {len(dns_recs)} record(s) found", "success")
         for r in dns_recs:
             add_log(scan_id, f"   → {r['type']}: {r['value']}", "info")
+
+        # real dig — zone transfer check
+        dig_res = run_dig(target)
+        if dig_res.get("zone_transfer_findings"):
+            for f in dig_res["zone_transfer_findings"]:
+                add_finding(scan_id, f)
+                add_log(scan_id, f"   🚨 CRITICAL: DNS Zone Transfer on {f['ns']}!", "error")
+        elif dig_res.get("ns_servers"):
+            add_log(scan_id, f"   → NS servers: {', '.join(dig_res['ns_servers'][:3])}", "info")
+
+        # WHOIS
+        whois_res = run_whois(target)
+        active_scans[scan_id]["whois"] = whois_res
+        if whois_res.get("registrar"):
+            add_log(scan_id, f"   → Registrar: {whois_res['registrar']}", "info")
+        if whois_res.get("expires"):
+            add_log(scan_id, f"   → Expires: {whois_res['expires']}", "info")
+
+        # Subfinder (full scan only)
+        if scan_type == "full":
+            add_log(scan_id, "   🔍 Running subfinder…", "info")
+            sub_res = run_subfinder(target)
+            active_scans[scan_id]["subdomains"] = sub_res.get("subdomains", [])
+            if sub_res["count"] > 0:
+                add_log(scan_id, f"   ✅ {sub_res['count']} subdomain(s) found", "success")
+                for s in sub_res["subdomains"][:5]:
+                    add_log(scan_id, f"      → {s}", "info")
+                if sub_res["count"] > 5:
+                    add_log(scan_id, f"      … and {sub_res['count']-5} more", "info")
+            else:
+                add_log(scan_id, "   → No new subdomains discovered", "info")
+
         active_scans[scan_id]["progress"] = 15
 
         # ── Phase 2: HTTP Probe ───────────────────────────────────────────────
@@ -860,12 +1212,23 @@ def run_full_scan(scan_id, raw_target, scan_type):
         active_scans[scan_id]["phase"] = "Fingerprinting"
         add_log(scan_id, "🔍 Phase 3: Technology Fingerprinting", "info")
         techs = fingerprint_tech(target)
+
+        # Augment with real whatweb output
+        ww_res = run_whatweb(target)
+        active_scans[scan_id]["whatweb_raw"] = ww_res.get("raw", "")
+        ww_names = {t["name"].lower() for t in techs}
+        for wt in ww_res.get("technologies", []):
+            if wt["name"].lower() not in ww_names:
+                techs.append(wt)
+                ww_names.add(wt["name"].lower())
+
         active_scans[scan_id]["technologies"] = techs
         if techs:
             add_log(scan_id, f"✅ {len(techs)} technology(ies) detected:", "success")
             for t in techs:
                 ver = f" v{t['version']}" if t.get("version") else ""
-                add_log(scan_id, f"   → {t['name']}{ver} [{t.get('category','')}]", "info")
+                src = t.get("source", "")
+                add_log(scan_id, f"   → {t['name']}{ver} [{t.get('category','tech')}] via {src}", "info")
         else:
             add_log(scan_id, "   → No technologies identified", "info")
         active_scans[scan_id]["progress"] = 35
@@ -977,7 +1340,7 @@ def run_full_scan(scan_id, raw_target, scan_type):
             add_log(scan_id, f"   ℹ️  {len(all_low)} low/info paths (robots, sitemap, login…)", "info")
         active_scans[scan_id]["progress"] = 85
 
-        # ── Phase 9: Injection Tests (full mode only) ─────────────────────────
+        # ── Phase 9: Injection Tests + nikto + ffuf + nuclei (full mode) ────
         if scan_type == "full":
             active_scans[scan_id]["phase"] = "Injection Tests"
             add_log(scan_id, "💉 Phase 9: Injection & Redirect Tests", "info")
@@ -991,6 +1354,48 @@ def run_full_scan(scan_id, raw_target, scan_type):
                 add_log(scan_id, f"   ⚠️  {f['severity']}: {f['description']}", "warning")
             if not xss and not redir:
                 add_log(scan_id, "   ✅ No basic injection issues detected", "success")
+
+            # nikto
+            active_scans[scan_id]["phase"] = "Nikto Scan"
+            add_log(scan_id, "🕵️  Phase 9b: Nikto Web Vulnerability Scan", "info")
+            nikto_res = run_nikto(target)
+            active_scans[scan_id]["nikto"] = nikto_res
+            if nikto_res["findings"]:
+                add_log(scan_id, f"   ⚠️  Nikto: {len(nikto_res['findings'])} finding(s)", "warning")
+                for f in nikto_res["findings"]:
+                    add_finding(scan_id, f)
+                    add_log(scan_id, f"   → [{f['severity']}] {f['description'][:100]}", "warning")
+            else:
+                add_log(scan_id, "   ✅ Nikto: No notable issues", "success")
+
+            # ffuf directory fuzzing
+            active_scans[scan_id]["phase"] = "Directory Fuzzing"
+            add_log(scan_id, "📂 Phase 9c: ffuf Directory Fuzzing", "info")
+            ffuf_res = run_ffuf(target)
+            active_scans[scan_id]["ffuf"] = ffuf_res
+            if ffuf_res["findings"]:
+                add_log(scan_id, f"   ⚠️  ffuf: {len(ffuf_res['findings'])} path(s) found", "warning")
+                for f in ffuf_res["findings"]:
+                    if f["severity"] in ("HIGH", "MEDIUM"):
+                        add_finding(scan_id, f)
+                        add_log(scan_id, f"   → [{f['severity']}] {f['description']}", "warning")
+                    else:
+                        add_log(scan_id, f"   → [{f['severity']}] {f['description']}", "info")
+            else:
+                add_log(scan_id, "   ✅ ffuf: No hidden directories found", "success")
+
+            # nuclei
+            active_scans[scan_id]["phase"] = "Nuclei Scan"
+            add_log(scan_id, "☢️  Phase 9d: Nuclei Template Scan", "info")
+            nuclei_res = run_nuclei(target)
+            active_scans[scan_id]["nuclei"] = nuclei_res
+            if nuclei_res["findings"]:
+                add_log(scan_id, f"   🚨 Nuclei: {len(nuclei_res['findings'])} finding(s)!", "error")
+                for f in nuclei_res["findings"]:
+                    add_finding(scan_id, f)
+                    add_log(scan_id, f"   → [{f['severity']}] {f.get('name','')}: {f['description'][:80]}", "warning")
+            else:
+                add_log(scan_id, "   ✅ Nuclei: No template matches", "success")
 
         active_scans[scan_id]["progress"] = 95
 
@@ -1234,6 +1639,43 @@ def tool_methods():
     raw = (request.json or {}).get('target','').strip()
     if not raw: return jsonify({"error":"Target required"}), 400
     return jsonify({"target": raw, "findings": check_http_methods(raw)})
+
+@app.route('/api/tools/whois', methods=['POST'])
+def tool_whois():
+    raw = (request.json or {}).get('target','').strip()
+    if not raw: return jsonify({"error":"Target required"}), 400
+    return jsonify(run_whois(raw))
+
+@app.route('/api/tools/subfinder', methods=['POST'])
+def tool_subfinder():
+    raw = (request.json or {}).get('target','').strip()
+    if not raw: return jsonify({"error":"Target required"}), 400
+    return jsonify(run_subfinder(raw))
+
+@app.route('/api/tools/nikto', methods=['POST'])
+def tool_nikto():
+    raw = (request.json or {}).get('target','').strip()
+    if not raw: return jsonify({"error":"Target required"}), 400
+    return jsonify(run_nikto(raw))
+
+@app.route('/api/tools/ffuf', methods=['POST'])
+def tool_ffuf():
+    raw = (request.json or {}).get('target','').strip()
+    if not raw: return jsonify({"error":"Target required"}), 400
+    return jsonify(run_ffuf(raw))
+
+@app.route('/api/tools/nuclei', methods=['POST'])
+def tool_nuclei():
+    raw = (request.json or {}).get('target','').strip()
+    if not raw: return jsonify({"error":"Target required"}), 400
+    sev = (request.json or {}).get('severity', 'medium,high,critical')
+    return jsonify(run_nuclei(raw, severity=sev))
+
+@app.route('/api/tools/whatweb', methods=['POST'])
+def tool_whatweb():
+    raw = (request.json or {}).get('target','').strip()
+    if not raw: return jsonify({"error":"Target required"}), 400
+    return jsonify(run_whatweb(raw))
 
 if __name__ == '__main__':
     print("[*] Bug Bounty Hunter Pro API v2.1 starting on :5000")
