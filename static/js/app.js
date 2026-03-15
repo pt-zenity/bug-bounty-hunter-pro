@@ -814,6 +814,82 @@ function closeDetail() {
 let _modalIndex = 0;
 let _modalPocText = '';
 
+/**
+ * Store a findings array as the current modal scope.
+ * Each renderer calls this so View buttons always open the right finding.
+ */
+function _setToolFindings(arr) {
+    window._modalFindings = arr;
+}
+
+/**
+ * Normalise a raw tool finding into the common modal schema.
+ * Works for headers, Nikto, ffuf, nuclei, CORS, SSL, vuln, methods, paths …
+ */
+function _normaliseFinding(f, toolName) {
+    // Build a unified object understood by _renderFindingModal
+    const norm = Object.assign({}, f);   // keep all original fields
+
+    // type / title
+    if (!norm.type) {
+        norm.type = f.name || f.template || f.header || f.method || f.path || toolName || 'Finding';
+    }
+
+    // affected / url
+    if (!norm.affected) {
+        norm.affected = f.url || f.path || f.host || f.word || '';
+    }
+
+    // source label
+    if (!norm.source) norm.source = toolName || '';
+
+    // PoC: prefer existing poc, else curl_command, else compose from payload/url
+    if (!norm.poc) {
+        if (f.curl_command)   norm.poc = f.curl_command;
+        else if (f.payload && f.url) norm.poc = `URL: ${f.url}\nPayload: ${f.payload}`;
+        else if (f.poc_code)  norm.poc = f.poc_code;
+    }
+
+    // CVSS: accept both {score,vector} and flat cvss_score string
+    if (!norm.cvss && f.cvss_score) {
+        norm.cvss = { score: parseFloat(f.cvss_score) || null, vector: f.cvss_vector || '' };
+    }
+
+    // tags: accept comma-string or array
+    if (!norm.tags) {
+        if (f.tags && typeof f.tags === 'string') norm.tags = f.tags.split(',').map(t=>t.trim()).filter(Boolean);
+        else if (Array.isArray(f.tags))            norm.tags = f.tags;
+    }
+
+    // references
+    if (!norm.references) norm.references = f.refs || f.reference || [];
+    if (typeof norm.references === 'string') norm.references = [norm.references];
+
+    // raw: best raw payload string
+    if (!norm.raw) {
+        norm.raw = f.raw || f.curl || f.extra || '';
+        if (f.error_signature) norm.raw = (norm.raw ? norm.raw + '\n' : '') + 'DB Error: ' + f.error_signature;
+        if (f.header && f.value) norm.raw = (norm.raw ? norm.raw + '\n' : '') + `${f.header}: ${f.value}`;
+        if (f.methods)           norm.raw = (norm.raw ? norm.raw + '\n' : '') + 'Methods: ' + f.methods.join(', ');
+        if (f.origin_tested)     norm.raw = (norm.raw ? norm.raw + '\n' : '') + `Origin tested: ${f.origin_tested}\nACAO: ${f.acao_header||''}\nACAC: ${f.acac_header||''}`;
+    }
+
+    return norm;
+}
+
+/** Produce a small View button for a row, opening modal at index idx */
+function _viewBtn(idx) {
+    return `<button onclick="openFindingModal(${idx})" title="View full details"
+        style="flex-shrink:0;border:1px solid rgba(99,102,241,0.35);background:rgba(99,102,241,0.1);
+               color:#818cf8;border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer;
+               display:inline-flex;align-items:center;gap:5px;white-space:nowrap;
+               transition:background 0.15s"
+        onmouseover="this.style.background='rgba(99,102,241,0.22)'"
+        onmouseout="this.style.background='rgba(99,102,241,0.1)'">
+        <i class="fas fa-eye"></i> View
+    </button>`;
+}
+
 function openFindingModal(idx, findingsArr) {
     const findings = findingsArr || window._modalFindings || [];
     if (!findings.length) return;
@@ -955,6 +1031,39 @@ function _renderFindingModal(f, idx, total) {
         rawEl.textContent = String(rawData).trim();
     } else {
         rawWrap.style.display = 'none';
+    }
+
+    // Extra / tool-specific detail fields
+    const extraWrap = document.getElementById('findingExtraWrap');
+    const extraEl   = document.getElementById('findingModalExtra');
+    const extraRows = [];
+
+    if (f.header)        extraRows.push(['Header', f.header]);
+    if (f.value)         extraRows.push(['Header Value', f.value]);
+    if (f.method)        extraRows.push(['HTTP Method', f.method]);
+    if (f.status_code)   extraRows.push(['Status Code', String(f.status_code)]);
+    if (f.payload)       extraRows.push(['Payload', f.payload]);
+    if (f.error_signature) extraRows.push(['DB Error', f.error_signature]);
+    if (f.origin_tested) extraRows.push(['Test Origin', f.origin_tested]);
+    if (f.acao_header)   extraRows.push(['ACAO Header', f.acao_header]);
+    if (f.acac_header)   extraRows.push(['ACAC Header', f.acac_header]);
+    if (f.template)      extraRows.push(['Template', f.template]);
+    if (f.author)        extraRows.push(['Author', f.author]);
+    if (f.word)          extraRows.push(['Path Word', f.word]);
+    if (f.length != null && f.length !== undefined) extraRows.push(['Content Length', String(f.length) + ' bytes']);
+    if (f.curl_command && !f.poc)  extraRows.push(['cURL PoC', f.curl_command]);
+
+    if (extraRows.length) {
+        extraWrap.style.display = '';
+        extraEl.innerHTML = extraRows.map(([k, v]) => `
+            <div style="display:flex;gap:10px;align-items:flex-start;border-bottom:1px solid rgba(255,255,255,0.04);padding-bottom:5px">
+                <span style="min-width:120px;color:var(--text-muted);font-size:11px;text-transform:uppercase;
+                             letter-spacing:0.3px;padding-top:1px;flex-shrink:0">${escapeHtml(k)}</span>
+                <code style="font-family:var(--mono);font-size:11px;color:var(--text-primary);
+                             word-break:break-all;white-space:pre-wrap">${escapeHtml(String(v))}</code>
+            </div>`).join('');
+    } else {
+        extraWrap.style.display = 'none';
     }
 
     // Counter + prev/next state
@@ -1355,17 +1464,21 @@ function renderPortResults(container, data) {
 }
 
 function renderHeaderResults(container, data) {
-    const findings = data.findings || [];
+    const rawFindings = data.findings || [];
     
     const scoreMap = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1, INFO: 0 };
-    const sorted = findings.sort((a, b) => (scoreMap[b.severity] || 0) - (scoreMap[a.severity] || 0));
+    const sorted = [...rawFindings].sort((a, b) => (scoreMap[b.severity] || 0) - (scoreMap[a.severity] || 0));
     
-    const score = Math.max(0, 100 - findings.reduce((acc, f) => {
+    const score = Math.max(0, 100 - rawFindings.reduce((acc, f) => {
         const penalties = { CRITICAL: 25, HIGH: 15, MEDIUM: 8, LOW: 3, INFO: 1 };
         return acc + (penalties[f.severity] || 0);
     }, 0));
     
     const scoreColor = score >= 80 ? 'var(--green)' : score >= 60 ? 'var(--yellow)' : 'var(--red)';
+
+    // Normalise and register for modal
+    const findings = sorted.map(f => _normaliseFinding(f, 'Headers'));
+    _setToolFindings(findings);
     
     container.innerHTML = `
         <div style="display:flex;align-items:center;gap:20px;margin-bottom:20px;padding:16px;background:var(--bg-secondary);border-radius:10px;border:1px solid var(--border)">
@@ -1379,18 +1492,19 @@ function renderHeaderResults(container, data) {
                 </div>
                 <div style="font-size:12px;color:var(--text-muted)">
                     HTTP Status: <strong>${data.status || 'N/A'}</strong> · 
-                    ${findings.length} issues found · 
+                    ${rawFindings.length} issues found · 
                     ${data.headers_checked || 0} headers checked
                 </div>
             </div>
         </div>
         
-        ${sorted.length > 0 ? sorted.map(f => `
+        ${findings.length > 0 ? findings.map((f, i) => `
             <div class="header-finding">
-                <div class="header-finding-top">
+                <div class="header-finding-top" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                     <span class="sev-badge ${f.severity}">${f.severity}</span>
-                    <span class="header-name">${f.header || f.type}</span>
-                    ${f.value ? `<span style="font-family:var(--mono);font-size:11px;color:var(--text-muted)">${escapeHtml(f.value)}</span>` : ''}
+                    <span class="header-name">${escapeHtml(f.header || f.type || '')}</span>
+                    ${f.value ? `<span style="font-family:var(--mono);font-size:11px;color:var(--text-muted);flex:1">${escapeHtml(f.value)}</span>` : '<span style="flex:1"></span>'}
+                    ${_viewBtn(i)}
                 </div>
                 <div class="header-finding-body">
                     <div>${escapeHtml(f.description || '')}</div>
@@ -1408,7 +1522,11 @@ function renderHeaderResults(container, data) {
 
 function renderSSLResults(container, data) {
     const cert = data.certificate || {};
-    const findings = data.findings || [];
+    const rawFindings = data.findings || [];
+
+    // Normalise and register for modal
+    const findings = rawFindings.map(f => _normaliseFinding(f, 'SSL/TLS'));
+    if (findings.length) _setToolFindings(findings);
     
     container.innerHTML = `
         ${cert.subject ? `
@@ -1461,14 +1579,15 @@ function renderSSLResults(container, data) {
         
         ${findings.length > 0 ? `
             <h3 style="font-size:13px;margin:16px 0 12px;color:var(--text-secondary)">SSL/TLS Issues</h3>
-            ${findings.map(f => `
+            ${findings.map((f, i) => `
                 <div class="header-finding">
-                    <div class="header-finding-top">
+                    <div class="header-finding-top" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                         <span class="sev-badge ${f.severity}">${f.severity}</span>
-                        <span class="header-name">${escapeHtml(f.type)}</span>
+                        <span class="header-name" style="flex:1">${escapeHtml(f.type || '')}</span>
+                        ${_viewBtn(i)}
                     </div>
                     <div class="header-finding-body">
-                        <div>${escapeHtml(f.description)}</div>
+                        <div>${escapeHtml(f.description || '')}</div>
                         ${f.remediation ? `<div class="remediation"><i class="fas fa-wrench"></i> ${escapeHtml(f.remediation)}</div>` : ''}
                     </div>
                 </div>
@@ -1482,9 +1601,9 @@ function renderSSLResults(container, data) {
 }
 
 function renderCORSResults(container, data) {
-    const findings = data.findings || [];
+    const rawFindings = data.findings || [];
     
-    if (findings.length === 0) {
+    if (rawFindings.length === 0) {
         container.innerHTML = `
             <div class="empty-state" style="border:1px solid rgba(16,185,129,0.3);border-radius:10px;background:rgba(16,185,129,0.05)">
                 <i class="fas fa-shield-alt fa-2x" style="color:var(--green)"></i>
@@ -1493,15 +1612,19 @@ function renderCORSResults(container, data) {
         `;
         return;
     }
+
+    const findings = rawFindings.map(f => _normaliseFinding(f, 'CORS'));
+    _setToolFindings(findings);
     
-    container.innerHTML = findings.map(f => `
+    container.innerHTML = findings.map((f, i) => `
         <div class="header-finding" style="border-color:${f.severity === 'CRITICAL' ? 'rgba(239,68,68,0.3)' : 'var(--border)'}">
-            <div class="header-finding-top">
+            <div class="header-finding-top" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                 <span class="sev-badge ${f.severity}">${f.severity}</span>
-                <span class="header-name">${escapeHtml(f.type)}</span>
+                <span class="header-name" style="flex:1">${escapeHtml(f.type || '')}</span>
+                ${_viewBtn(i)}
             </div>
             <div class="header-finding-body">
-                <div>${escapeHtml(f.description)}</div>
+                <div>${escapeHtml(f.description || '')}</div>
                 <div style="margin-top:8px;font-size:11px;color:var(--text-muted)">
                     <strong>Test Origin:</strong> <code style="font-family:var(--mono)">${escapeHtml(f.origin_tested || '')}</code><br>
                     <strong>ACAO:</strong> <code style="font-family:var(--mono);color:var(--red)">${escapeHtml(f.acao_header || '')}</code><br>
@@ -1575,12 +1698,23 @@ function renderPathResults(container, data) {
         container.innerHTML = '<div class="empty-state"><i class="fas fa-folder fa-2x"></i><p>No interesting paths discovered</p></div>';
         return;
     }
+
+    // Normalise and register for modal
+    const findings = paths.map(p => _normaliseFinding({
+        ...p,
+        type: p.type || 'Accessible Path',
+        description: `${p.path || ''} → HTTP ${p.status || '?'} (${p.content_length || 0} bytes)`,
+        severity: p.severity || 'INFO',
+        affected: p.url || p.path || '',
+        source: 'ffuf/path'
+    }, 'Path Scan'));
+    _setToolFindings(findings);
     
     const grouped = {};
-    paths.forEach(p => {
+    findings.forEach((p, idx) => {
         const sev = p.severity || 'INFO';
         if (!grouped[sev]) grouped[sev] = [];
-        grouped[sev].push(p);
+        grouped[sev].push({...p, _origIdx: idx});
     });
     
     const sevOrder = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'];
@@ -1596,15 +1730,16 @@ function renderPathResults(container, data) {
                 </div>
                 ${grouped[sev].map(p => `
                     <div class="header-finding" style="margin-bottom:8px">
-                        <div class="header-finding-top">
-                            <span style="font-family:var(--mono);font-size:11px;background:rgba(59,130,246,0.1);color:var(--accent);padding:3px 6px;border-radius:4px">${p.status}</span>
+                        <div class="header-finding-top" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                            <span style="font-family:var(--mono);font-size:11px;background:rgba(59,130,246,0.1);color:var(--accent);padding:3px 6px;border-radius:4px">${p.status || '?'}</span>
                             <span style="font-family:var(--mono);font-size:12px;flex:1;color:var(--text-primary)">${escapeHtml(p.path || '')}</span>
-                            <span style="font-size:11px;color:var(--text-muted)">${p.type}</span>
+                            <span style="font-size:11px;color:var(--text-muted)">${escapeHtml(p.type || '')}</span>
+                            ${_viewBtn(p._origIdx)}
                         </div>
                         ${p.status === 200 && p.severity !== 'INFO' ? `
                         <div class="header-finding-body">
-                            <a href="${escapeHtml(p.url)}" target="_blank" style="color:var(--accent);font-size:11px;font-family:var(--mono)">${escapeHtml(p.url)}</a>
-                            <span style="font-size:11px;color:var(--text-muted)"> · ${p.content_length} bytes</span>
+                            <a href="${escapeHtml(p.url || '#')}" target="_blank" style="color:var(--accent);font-size:11px;font-family:var(--mono)">${escapeHtml(p.url || '')}</a>
+                            <span style="font-size:11px;color:var(--text-muted)"> · ${p.content_length || 0} bytes</span>
                         </div>
                         ` : ''}
                     </div>
@@ -1619,9 +1754,9 @@ function renderPathResults(container, data) {
 // ─── XSS / SQLi Findings Renderer ────────────────────────────────────────────
 
 function renderVulnFindingsResults(container, data, toolName) {
-    const findings = data.findings || [];
+    const rawFindings = data.findings || [];
 
-    if (findings.length === 0) {
+    if (rawFindings.length === 0) {
         container.innerHTML = `
             <div class="empty-state">
                 <i class="fas fa-shield-alt fa-2x" style="color:var(--green)"></i>
@@ -1629,6 +1764,10 @@ function renderVulnFindingsResults(container, data, toolName) {
             </div>`;
         return;
     }
+
+    // Normalise and register for modal
+    const findings = rawFindings.map(f => _normaliseFinding(f, toolName));
+    _setToolFindings(findings);
 
     const sevColors = { CRITICAL:'var(--red)', HIGH:'#f97316', MEDIUM:'#f59e0b', LOW:'#3b82f6', INFO:'var(--text-muted)' };
 
@@ -1638,9 +1777,10 @@ function renderVulnFindingsResults(container, data, toolName) {
         </div>
         ${findings.map((f, i) => `
             <div class="header-finding" style="margin-bottom:12px;border-left:3px solid ${sevColors[f.severity]||'#888'}">
-                <div class="header-finding-top">
+                <div class="header-finding-top" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                     <span class="sev-badge ${f.severity}">${f.severity}</span>
-                    <span style="font-weight:600;font-size:13px;color:var(--text-primary)">${escapeHtml(f.type || toolName)}</span>
+                    <span style="font-weight:600;font-size:13px;color:var(--text-primary);flex:1">${escapeHtml(f.type || toolName)}</span>
+                    ${_viewBtn(i)}
                 </div>
                 <div class="header-finding-body" style="padding-top:6px">
                     <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">${escapeHtml(f.description || '')}</div>
@@ -1663,9 +1803,9 @@ function renderVulnFindingsResults(container, data, toolName) {
 // ─── HTTP Methods Renderer ────────────────────────────────────────────────────
 
 function renderMethodsResults(container, data) {
-    const findings = data.findings || [];
+    const rawFindings = data.findings || [];
 
-    if (findings.length === 0) {
+    if (rawFindings.length === 0) {
         container.innerHTML = `
             <div class="empty-state">
                 <i class="fas fa-check-circle fa-2x" style="color:var(--green)"></i>
@@ -1673,6 +1813,9 @@ function renderMethodsResults(container, data) {
             </div>`;
         return;
     }
+
+    const findings = rawFindings.map(f => _normaliseFinding(f, 'HTTP Methods'));
+    _setToolFindings(findings);
 
     const sevColors = { CRITICAL:'var(--red)', HIGH:'#f97316', MEDIUM:'#f59e0b', LOW:'#3b82f6', INFO:'var(--text-muted)' };
     const methodColors = { DELETE:'var(--red)', PUT:'#f97316', TRACE:'#f59e0b', PATCH:'#f59e0b',
@@ -1683,15 +1826,17 @@ function renderMethodsResults(container, data) {
         <div style="margin-bottom:12px;font-size:12px;color:var(--text-muted)">
             Found <strong style="color:var(--orange)">${findings.length}</strong> HTTP method finding(s)
         </div>
-        ${findings.map(f => `
+        ${findings.map((f, i) => `
             <div class="header-finding" style="margin-bottom:10px;border-left:3px solid ${sevColors[f.severity]||'#888'}">
-                <div class="header-finding-top">
+                <div class="header-finding-top" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                     <span class="sev-badge ${f.severity}">${f.severity}</span>
                     <span style="font-family:var(--mono);font-weight:700;font-size:13px;
                           color:${methodColors[f.method]||'var(--text-primary)'}">
                         ${escapeHtml(f.method || 'OPTIONS')}
                     </span>
                     ${f.status_code ? `<span style="font-size:11px;background:rgba(255,255,255,0.06);padding:2px 6px;border-radius:4px;color:var(--text-secondary)">${f.status_code}</span>` : ''}
+                    <span style="flex:1"></span>
+                    ${_viewBtn(i)}
                 </div>
                 <div class="header-finding-body" style="padding-top:6px">
                     <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">${escapeHtml(f.description || '')}</div>
@@ -1776,22 +1921,29 @@ function renderSubfinderResults(container, data) {
 }
 
 function renderNiktoResults(container, data) {
-    const findings = data.findings || [];
-    if (findings.length === 0) {
+    const rawFindings = data.findings || [];
+    if (rawFindings.length === 0) {
         container.innerHTML = `<div class="empty-state"><i class="fas fa-shield-alt fa-2x" style="color:var(--green)"></i><p style="color:var(--green)">Nikto found no notable vulnerabilities</p></div>`;
         return;
     }
+    const findings = rawFindings.map(f => _normaliseFinding(f, 'Nikto'));
+    _setToolFindings(findings);
+
     const sevColors = { CRITICAL:'var(--red)', HIGH:'#f97316', MEDIUM:'#f59e0b', LOW:'#3b82f6', INFO:'var(--text-muted)' };
     container.innerHTML = `
         <div style="margin-bottom:12px;font-size:12px;color:var(--text-muted)">
             Nikto found <strong style="color:var(--orange)">${findings.length}</strong> issue(s) on ${escapeHtml(data.target||'')}
         </div>
-        ${findings.map(f => `
+        ${findings.map((f, i) => `
             <div class="header-finding" style="margin-bottom:8px;border-left:3px solid ${sevColors[f.severity]||'#888'}">
-                <div class="header-finding-top">
+                <div class="header-finding-top" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                     <span class="sev-badge ${f.severity}">${f.severity}</span>
-                    <span style="font-size:12px;color:var(--text-primary)">${escapeHtml(f.description)}</span>
+                    <span style="font-size:12px;color:var(--text-primary);flex:1">${escapeHtml(f.description || f.type || '')}</span>
+                    ${_viewBtn(i)}
                 </div>
+                ${f.url ? `<div class="header-finding-body" style="padding-top:4px">
+                    <a href="${escapeHtml(f.url)}" target="_blank" style="font-size:11px;font-family:var(--mono);color:var(--accent)">${escapeHtml(f.url)}</a>
+                </div>` : ''}
             </div>`).join('')}
         <details style="margin-top:16px">
             <summary style="font-size:11px;color:var(--text-muted);cursor:pointer">Raw Nikto Output</summary>
@@ -1801,11 +1953,14 @@ function renderNiktoResults(container, data) {
 }
 
 function renderFfufResults(container, data) {
-    const findings = data.findings || [];
-    if (findings.length === 0) {
+    const rawFindings = data.findings || [];
+    if (rawFindings.length === 0) {
         container.innerHTML = `<div class="empty-state"><i class="fas fa-folder fa-2x" style="color:var(--green)"></i><p style="color:var(--green)">No hidden directories found</p></div>`;
         return;
     }
+    const findings = rawFindings.map(f => _normaliseFinding(f, 'ffuf'));
+    _setToolFindings(findings);
+
     const sevColors = { HIGH:'#f97316', MEDIUM:'#f59e0b', LOW:'#3b82f6', INFO:'var(--text-muted)' };
     container.innerHTML = `
         <div style="margin-bottom:12px;font-size:12px;color:var(--text-muted)">
@@ -1818,19 +1973,21 @@ function renderFfufResults(container, data) {
                     <th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Path</th>
                     <th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Severity</th>
                     <th style="text-align:right;padding:6px 8px;color:var(--text-muted)">Size</th>
+                    <th style="text-align:center;padding:6px 8px;color:var(--text-muted)">Detail</th>
                 </tr>
             </thead>
             <tbody>
-                ${findings.map(f => `
+                ${findings.map((f, i) => `
                     <tr style="border-bottom:1px solid rgba(255,255,255,0.04)">
                         <td style="padding:6px 8px">
                             <span style="font-family:var(--mono);font-size:11px;background:rgba(59,130,246,0.1);color:var(--accent);padding:2px 6px;border-radius:4px">${f.status||'?'}</span>
                         </td>
                         <td style="padding:6px 8px;font-family:var(--mono);font-size:11px">
-                            <a href="${escapeHtml(f.url||'#')}" target="_blank" style="color:var(--accent)">${escapeHtml('/'+f.word)}</a>
+                            <a href="${escapeHtml(f.url||'#')}" target="_blank" style="color:var(--accent)">${escapeHtml('/'+(f.word||''))}</a>
                         </td>
                         <td style="padding:6px 8px"><span class="sev-badge ${f.severity}">${f.severity}</span></td>
                         <td style="padding:6px 8px;text-align:right;color:var(--text-muted);font-size:11px">${f.length||0}B</td>
+                        <td style="padding:6px 8px;text-align:center">${_viewBtn(i)}</td>
                     </tr>`).join('')}
             </tbody>
         </table>
@@ -1838,14 +1995,14 @@ function renderFfufResults(container, data) {
 }
 
 function renderNucleiResults(container, data) {
-    const findings = data.findings || [];
+    const rawFindings = data.findings || [];
     const sevColors = {
         CRITICAL: '#ef4444', HIGH: '#f97316', MEDIUM: '#f59e0b',
         LOW: '#3b82f6', INFO: '#94a3b8'
     };
     const sevOrder = { CRITICAL:0, HIGH:1, MEDIUM:2, LOW:3, INFO:4 };
 
-    if (findings.length === 0) {
+    if (rawFindings.length === 0) {
         container.innerHTML = `
             <div class="empty-state">
                 <i class="fas fa-radiation fa-2x" style="color:var(--green)"></i>
@@ -1855,10 +2012,15 @@ function renderNucleiResults(container, data) {
         return;
     }
 
-    // Sort by severity
-    const sorted = [...findings].sort((a,b) => (sevOrder[a.severity]||9) - (sevOrder[b.severity]||9));
+    // Normalise and register for modal
+    const findings = rawFindings.map(f => _normaliseFinding(f, 'Nuclei'));
+    _setToolFindings(findings);
 
-    // Group by severity
+    // Sort by severity
+    const sorted = [...findings].map((f,i) => ({...f, _origIdx: i}))
+                                .sort((a,b) => (sevOrder[a.severity]||9) - (sevOrder[b.severity]||9));
+
+    // Group by severity (preserve original index for modal)
     const groups = {};
     for (const f of sorted) {
         const sev = f.severity || 'INFO';
@@ -1873,6 +2035,7 @@ function renderNucleiResults(container, data) {
                 <span style="font-size:12px;color:var(--text-muted)">${items.length} finding${items.length>1?'s':''}</span>
             </div>
             ${items.map(f => {
+                const origIdx = f._origIdx;
                 const cveHtml = f.cve_id && f.cve_id.length > 0
                     ? f.cve_id.map(cve => `<a href="https://nvd.nist.gov/vuln/detail/${escapeHtml(cve)}" target="_blank" style="color:#ef4444;font-size:10px;font-family:monospace;background:rgba(239,68,68,0.08);padding:1px 5px;border-radius:3px;text-decoration:none">${escapeHtml(cve)}</a>`).join(' ')
                     : '';
@@ -1906,13 +2069,14 @@ function renderNucleiResults(container, data) {
                                 ${cveHtml}
                                 ${cvssHtml}
                                 ${cweHtml}
+                                <span style="margin-left:auto">${_viewBtn(origIdx)}</span>
                             </div>
                             ${f.template ? `<div style="font-size:10px;font-family:monospace;color:var(--text-muted);margin-bottom:4px">template: ${escapeHtml(f.template)}</div>` : ''}
                             ${f.description ? `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px">${escapeHtml(f.description.slice(0,300))}</div>` : ''}
                             ${f.url ? `<div style="font-size:11px;font-family:monospace;background:rgba(255,255,255,0.04);padding:3px 8px;border-radius:4px;margin-bottom:4px">
                                 <a href="${escapeHtml(f.url)}" target="_blank" style="color:var(--accent)">${escapeHtml(f.url)}</a>
                             </div>` : ''}
-                            ${f.tags ? `<div style="font-size:10px;color:var(--text-muted)">🏷️ ${escapeHtml(f.tags)}</div>` : ''}
+                            ${f.tags ? `<div style="font-size:10px;color:var(--text-muted)">🏷️ ${escapeHtml(typeof f.tags === 'string' ? f.tags : f.tags.join(', '))}</div>` : ''}
                             ${f.author ? `<div style="font-size:10px;color:var(--text-muted)">👤 ${escapeHtml(f.author)}</div>` : ''}
                             ${refsHtml}
                             ${remHtml}
