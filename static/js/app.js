@@ -84,7 +84,7 @@ function navigateTo(pageName) {
     document.getElementById('breadcrumbCurrent').textContent = titles[pageName] || pageName;
     
     // Load page-specific data
-    if (pageName === 'results') loadScanHistory();
+    if (pageName === 'results') loadScanHistory();   // now async
     if (pageName === 'reports') loadReports();
 }
 
@@ -342,6 +342,7 @@ function onScanComplete(scan, scanId) {
 }
 
 function clearConsole() {
+    consoleAutoScroll = true;   // FIX BUG 10: re-enable auto-scroll on clear
     const console_el = document.getElementById('consoleOutput');
     console_el.innerHTML = '';
     document.getElementById('progressBar').style.width = '0%';
@@ -1303,6 +1304,15 @@ async function loadReports() {
                 </div>
                 
                 <p style="font-size:12px;color:var(--text-secondary);margin-bottom:16px">${escapeHtml(report.executive_summary || '')}</p>
+                
+                <div style="display:flex;gap:8px;margin-bottom:12px">
+                    <button class="btn btn-sm" onclick="exportScanMarkdown('${scan.id}')" title="Export Markdown">
+                        <i class="fas fa-file-alt"></i> Export MD
+                    </button>
+                    <button class="btn btn-sm" onclick="exportScanJson('${scan.id}')" title="Export JSON">
+                        <i class="fas fa-download"></i> Export JSON
+                    </button>
+                </div>
                 
                 ${report.findings?.slice(0, 5).map(f => `
                     <div class="report-finding-item">
