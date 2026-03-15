@@ -626,7 +626,6 @@ def run_nuclei(target, severity='medium,high,critical', category=None,
         '-silent',
         '-j',              # JSON output
         '-no-color',
-        '-time-limit', '180'
     ]
 
     # Template selection priority: category > templates > tags > default
