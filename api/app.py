@@ -1,18 +1,29 @@
 #!/usr/bin/env python3
 """
-Bug Bounty Hunter Pro - Backend API v4.0 (Nuclei Full Templates)
-Real scanning engine with live results streaming
-Fixed: target sanitization, fingerprint false-positives, scan_list live counts,
-       SSE stream stability, HTTP phase logging, tech error filtering
+Bug Bounty Hunter Pro - Backend API v4.1 (Full Export: TXT / HTML / PDF)
+Real scanning engine with live results streaming + multi-format export
 """
-from flask import Flask, request, jsonify, Response, stream_with_context
+from flask import Flask, request, jsonify, Response, stream_with_context, send_file
 from flask_cors import CORS
-import subprocess, threading, json, os, re, socket, ssl
+import subprocess, threading, json, os, re, socket, ssl, io, textwrap
 import urllib.request, urllib.error, urllib.parse
 import time, hashlib, random
 from datetime import datetime
 import dns.resolver
 import requests
+
+# PDF via reportlab
+try:
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import cm, mm
+    from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer, Table,
+                                     TableStyle, HRFlowable, PageBreak, KeepTogether)
+    from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
+    REPORTLAB_OK = True
+except ImportError:
+    REPORTLAB_OK = False
 import concurrent.futures
 
 app = Flask(__name__)
@@ -1752,7 +1763,707 @@ def generate_poc_report(target, findings):
             "findings": report_findings,
             "executive_summary": summary}
 
+# ─── Export Generators ────────────────────────────────────────────────────────
+
+SEV_EMOJI = {"CRITICAL": "🔴", "HIGH": "🟠", "MEDIUM": "🟡", "LOW": "🟢", "INFO": "🔵"}
+SEV_COLOR_HEX = {
+    "CRITICAL": "#ef4444", "HIGH": "#f97316",
+    "MEDIUM":   "#f59e0b", "LOW":  "#3b82f6", "INFO": "#94a3b8"
+}
+
+def _build_export_data(scan):
+    """Consolidate all scan data into a clean export dict."""
+    report  = scan.get("poc_report") or {}
+    target  = scan.get("target", "Unknown")
+    scan_id = scan.get("id", "")
+    started = scan.get("started", "")
+    ended   = scan.get("ended", "")
+    scan_type = scan.get("scan_type", "full")
+
+    findings = report.get("findings") or []
+    counts   = report.get("severity_counts") or {"CRITICAL":0,"HIGH":0,"MEDIUM":0,"LOW":0,"INFO":0}
+    summary  = report.get("executive_summary") or ""
+    date     = report.get("date") or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # Gather recon data
+    dns_recs  = scan.get("dns") or []
+    whois_d   = scan.get("whois") or {}
+    http_info = scan.get("http_info") or {}
+    techs     = scan.get("technologies") or []
+    ports     = scan.get("ports") or []
+    ssl_info  = scan.get("ssl") or {}
+    headers   = scan.get("security_headers") or {}
+    subdoms   = scan.get("subdomains") or []
+    paths     = scan.get("paths") or []
+    logs      = scan.get("logs") or []
+
+    return {
+        "scan_id": scan_id,
+        "target": target,
+        "date": date,
+        "started": started,
+        "ended": ended,
+        "scan_type": scan_type,
+        "summary": summary,
+        "counts": counts,
+        "total": sum(counts.values()),
+        "findings": findings,
+        "dns": dns_recs,
+        "whois": whois_d,
+        "http_info": http_info,
+        "technologies": techs,
+        "ports": ports,
+        "ssl": ssl_info,
+        "headers": headers,
+        "subdomains": subdoms,
+        "paths": paths,
+        "logs": logs,
+    }
+
+# ── TXT Export ────────────────────────────────────────────────────────────────
+
+def export_txt(scan):
+    """Generate a plain-text security report."""
+    d = _build_export_data(scan)
+    w = 72
+    hr = "─" * w
+    dhr = "═" * w
+    lines = []
+
+    def L(s=""): lines.append(s)
+    def H1(s): L(dhr); L(s.center(w)); L(dhr)
+    def H2(s): L(""); L(f"  ▌ {s}"); L("  " + "─" * (w-2))
+    def KV(k, v, indent=4):
+        if v: L(f"{' '*indent}{k:<22}: {v}")
+
+    H1("BUG BOUNTY HUNTER PRO — SECURITY REPORT")
+    L(f"  Generated  : {d['date']}")
+    L(f"  Target     : {d['target']}")
+    L(f"  Scan ID    : {d['scan_id']}")
+    L(f"  Scan Type  : {d['scan_type'].upper()}")
+    L(f"  Total Findings: {d['total']}")
+    L()
+
+    # Severity summary
+    H2("SEVERITY SUMMARY")
+    for sev in ("CRITICAL","HIGH","MEDIUM","LOW","INFO"):
+        cnt = d["counts"].get(sev, 0)
+        bar = "█" * min(cnt, 40)
+        L(f"    {sev:<10} {cnt:>4}  {bar}")
+
+    # Executive Summary
+    H2("EXECUTIVE SUMMARY")
+    for chunk in textwrap.wrap(d["summary"] or "N/A", w - 4):
+        L(f"    {chunk}")
+
+    # HTTP Info
+    if d["http_info"] and not d["http_info"].get("error"):
+        H2("HTTP INFORMATION")
+        hi = d["http_info"]
+        KV("Status Code", str(hi.get("status_code","")))
+        KV("Final URL", hi.get("final_url",""))
+        KV("Protocol", hi.get("protocol",""))
+        KV("Server", hi.get("server",""))
+        KV("Response Time", f"{hi.get('response_time',0):.2f}s")
+        KV("Content-Type", hi.get("content_type",""))
+
+    # Technologies
+    if d["technologies"]:
+        H2("TECHNOLOGIES DETECTED")
+        for t in d["technologies"]:
+            ver = f" v{t['version']}" if t.get("version") else ""
+            L(f"    • {t.get('name','')}{ver}  [{t.get('source','')}]")
+
+    # DNS Records
+    if d["dns"]:
+        H2("DNS RECORDS")
+        for r in d["dns"][:20]:
+            L(f"    {r.get('type',''):<6} {r.get('value','')}")
+
+    # Subdomains
+    if d["subdomains"]:
+        H2(f"SUBDOMAINS ({len(d['subdomains'])} found)")
+        for sub in sorted(d["subdomains"])[:50]:
+            L(f"    • {sub}")
+        if len(d["subdomains"]) > 50:
+            L(f"    ... and {len(d['subdomains'])-50} more")
+
+    # Open Ports
+    if d["ports"]:
+        H2("OPEN PORTS")
+        for p in d["ports"]:
+            svc = p.get("service","")
+            L(f"    {p.get('port',''):<6} {svc}")
+
+    # SSL/TLS
+    if d["ssl"] and not d["ssl"].get("error"):
+        H2("SSL/TLS")
+        sl = d["ssl"]
+        KV("Grade", sl.get("grade",""))
+        KV("Subject", sl.get("subject",""))
+        KV("Issuer", sl.get("issuer",""))
+        KV("Expires", sl.get("valid_to",""))
+        if sl.get("issues"):
+            L("    Issues:")
+            for iss in sl["issues"]:
+                L(f"      ⚠  {iss}")
+
+    # Security Headers
+    if d["headers"]:
+        H2("SECURITY HEADERS")
+        missing = d["headers"].get("missing", [])
+        present = d["headers"].get("present", [])
+        if present:
+            L("    Present:")
+            for h in present: L(f"      ✓  {h}")
+        if missing:
+            L("    Missing:")
+            for h in missing: L(f"      ✗  {h}")
+
+    # Paths Discovered
+    if d["paths"]:
+        H2(f"PATHS DISCOVERED ({len(d['paths'])} total)")
+        for p in d["paths"][:30]:
+            L(f"    [{p.get('status','')}] {p.get('path','')}")
+        if len(d["paths"]) > 30:
+            L(f"    ... and {len(d['paths'])-30} more")
+
+    # ── Findings ──
+    H1(f"FINDINGS  ({d['total']} total)")
+    if not d["findings"]:
+        L("  No significant findings.")
+    else:
+        for i, f in enumerate(d["findings"], 1):
+            sev  = f.get("severity","INFO")
+            emoji = SEV_EMOJI.get(sev,"")
+            L("")
+            L(f"  [{i:03d}] {emoji} {sev}  —  {f.get('type','')}")
+            L(f"        ID          : {f.get('id','')}")
+            L(f"        Description : {f.get('description','N/A')[:200]}")
+            L(f"        Affected    : {f.get('affected','')}")
+            L(f"        CVSS Score  : {f.get('cvss',{}).get('score','N/A')}")
+            if f.get("remediation"):
+                L(f"        Remediation : {f['remediation'][:200]}")
+            if f.get("poc"):
+                L(f"        PoC         : {f['poc'][:200]}")
+            L("  " + "·" * (w-2))
+
+    L("")
+    L(dhr)
+    L("  END OF REPORT — Bug Bounty Hunter Pro".center(w))
+    L(dhr)
+
+    return "\n".join(lines)
+
+# ── HTML Export ───────────────────────────────────────────────────────────────
+
+def export_html(scan):
+    """Generate a self-contained styled HTML report."""
+    d = _build_export_data(scan)
+    counts = d["counts"]
+
+    def esc(s):
+        if not s: return ""
+        return (str(s).replace("&","&amp;").replace("<","&lt;")
+                      .replace(">","&gt;").replace('"',"&quot;"))
+
+    sev_style = {
+        "CRITICAL":"background:#fef2f2;color:#991b1b;border:1px solid #fca5a5",
+        "HIGH":     "background:#fff7ed;color:#9a3412;border:1px solid #fdba74",
+        "MEDIUM":   "background:#fffbeb;color:#92400e;border:1px solid #fcd34d",
+        "LOW":      "background:#eff6ff;color:#1e40af;border:1px solid #93c5fd",
+        "INFO":     "background:#f8fafc;color:#475569;border:1px solid #cbd5e1",
+    }
+
+    def sev_badge(sev):
+        st = sev_style.get(sev, sev_style["INFO"])
+        return f'<span style="{st};padding:2px 8px;border-radius:12px;font-size:11px;font-weight:700">{esc(sev)}</span>'
+
+    def kv_row(k, v):
+        if not v: return ""
+        return f'<tr><td style="color:#64748b;width:160px;font-size:12px;padding:5px 10px">{esc(k)}</td><td style="font-size:12px;padding:5px 10px">{esc(str(v))}</td></tr>'
+
+    # Build findings HTML
+    def findings_html():
+        if not d["findings"]:
+            return '<p style="color:#64748b;font-size:13px">No significant findings.</p>'
+        out = []
+        for f in d["findings"]:
+            sev = f.get("severity","INFO")
+            col = SEV_COLOR_HEX.get(sev,"#888")
+            out.append(f'''
+            <div style="border:1px solid #e2e8f0;border-left:4px solid {col};border-radius:8px;padding:14px 16px;margin-bottom:12px;background:#fff">
+              <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+                {sev_badge(sev)}
+                <span style="font-size:11px;color:#94a3b8;font-family:monospace">{esc(f.get("id",""))}</span>
+                <span style="font-size:13px;font-weight:600;color:#1e293b">{esc(f.get("type",""))}</span>
+                <span style="font-size:11px;color:#94a3b8;margin-left:auto">CVSS {esc(str(f.get("cvss",{}).get("score","N/A")))}</span>
+              </div>
+              <p style="font-size:12px;color:#475569;margin:0 0 6px">{esc(f.get("description","N/A"))}</p>
+              <p style="font-size:11px;color:#64748b;margin:0 0 4px">
+                <strong>Affected:</strong> <code style="background:#f1f5f9;padding:1px 5px;border-radius:3px">{esc(f.get("affected",""))}</code>
+              </p>
+              {f'<p style="font-size:11px;color:#059669;margin:4px 0 0"><strong>Remediation:</strong> {esc(f.get("remediation",""))}</p>' if f.get("remediation") else ""}
+              {f'<pre style="font-size:10px;background:#f8fafc;padding:6px 10px;border-radius:4px;border:1px solid #e2e8f0;overflow-x:auto;margin-top:6px">{esc(f.get("poc",""))}</pre>' if f.get("poc") else ""}
+            </div>''')
+        return "\n".join(out)
+
+    # Severity chart data
+    chart_data = json.dumps([counts.get(s,0) for s in ["CRITICAL","HIGH","MEDIUM","LOW","INFO"]])
+
+    # DNS rows
+    dns_rows = "".join(
+        f'<tr><td style="font-size:11px;padding:4px 8px;border-bottom:1px solid #f1f5f9;color:#6366f1;font-weight:600">{esc(r.get("type",""))}</td>'
+        f'<td style="font-size:11px;padding:4px 8px;border-bottom:1px solid #f1f5f9;font-family:monospace">{esc(r.get("value",""))}</td></tr>'
+        for r in (d["dns"] or [])[:30]
+    )
+
+    # Port rows
+    port_rows = "".join(
+        f'<tr><td style="font-size:11px;padding:4px 8px;border-bottom:1px solid #f1f5f9;font-weight:700;color:#ef4444">{esc(str(p.get("port","")))}</td>'
+        f'<td style="font-size:11px;padding:4px 8px;border-bottom:1px solid #f1f5f9">{esc(p.get("service",""))}</td></tr>'
+        for p in (d["ports"] or [])[:20]
+    )
+
+    # Tech badges
+    tech_badges = " ".join(
+        f'<span style="background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;padding:3px 9px;border-radius:20px;font-size:11px">'
+        f'{esc(t.get("name",""))}{(" v"+esc(t["version"])) if t.get("version") else ""}</span>'
+        for t in (d["technologies"] or [])
+    )
+
+    # Subdomains
+    sub_html = ""
+    if d["subdomains"]:
+        subs = sorted(d["subdomains"])[:50]
+        sub_html = '<div style="display:flex;flex-wrap:wrap;gap:5px;">' + \
+            "".join(f'<span style="background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0;padding:2px 8px;border-radius:4px;font-size:10px;font-family:monospace">{esc(s)}</span>' for s in subs) + \
+            f'{"<span style=\'color:#64748b;font-size:11px\'>... and more</span>" if len(d["subdomains"])>50 else ""}</div>'
+
+    # Path table
+    path_rows = "".join(
+        f'<tr><td style="font-size:11px;padding:4px 8px;border-bottom:1px solid #f1f5f9;font-family:monospace;color:#6366f1">{esc(str(p.get("status","")))}</td>'
+        f'<td style="font-size:11px;padding:4px 8px;border-bottom:1px solid #f1f5f9;font-family:monospace">{esc(p.get("path",""))}</td></tr>'
+        for p in (d["paths"] or [])[:30]
+    )
+
+    # Security headers
+    hdr_missing = (d["headers"] or {}).get("missing", [])
+    hdr_present = (d["headers"] or {}).get("present", [])
+    hdr_html = ""
+    if hdr_present or hdr_missing:
+        hdr_html = '<div style="display:flex;gap:16px;flex-wrap:wrap">'
+        if hdr_present:
+            hdr_html += '<div><div style="font-size:11px;color:#15803d;font-weight:700;margin-bottom:4px">✓ Present</div>' + \
+                "".join(f'<div style="font-size:11px;color:#374151;margin:2px 0">✓ {esc(h)}</div>' for h in hdr_present) + '</div>'
+        if hdr_missing:
+            hdr_html += '<div><div style="font-size:11px;color:#dc2626;font-weight:700;margin-bottom:4px">✗ Missing</div>' + \
+                "".join(f'<div style="font-size:11px;color:#374151;margin:2px 0">✗ {esc(h)}</div>' for h in hdr_missing) + '</div>'
+        hdr_html += '</div>'
+
+    def section(title, icon, body, show=True):
+        if not show: return ""
+        return f'''
+        <div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:20px;margin-bottom:16px">
+          <h3 style="margin:0 0 14px;font-size:14px;color:#1e293b;display:flex;align-items:center;gap:8px">
+            <span style="font-size:16px">{icon}</span> {title}
+          </h3>
+          {body}
+        </div>'''
+
+    # Whois section
+    whois_rows = ""
+    if d["whois"]:
+        w = d["whois"]
+        for k, vk in [("Registrar","registrar"),("Registrant","registrant"),
+                      ("Created","creation_date"),("Expires","expiration_date"),("Country","country")]:
+            whois_rows += kv_row(k, w.get(vk,""))
+
+    # SSL section
+    ssl_body = ""
+    if d["ssl"] and not d["ssl"].get("error"):
+        sl = d["ssl"]
+        ssl_rows = ""
+        for k, vk in [("Grade","grade"),("Subject","subject"),("Issuer","issuer"),
+                      ("Valid From","valid_from"),("Expires","valid_to"),("Protocol","protocol")]:
+            ssl_rows += kv_row(k, sl.get(vk,""))
+        ssl_body = f'<table style="border-collapse:collapse;width:100%">{ssl_rows}</table>'
+        if sl.get("issues"):
+            ssl_body += '<div style="margin-top:10px">' + \
+                "".join(f'<div style="font-size:11px;color:#dc2626;margin:2px 0">⚠ {esc(i)}</div>' for i in sl["issues"]) + '</div>'
+
+    http_body = ""
+    if d["http_info"] and not d["http_info"].get("error"):
+        hi = d["http_info"]
+        http_rows = ""
+        for k, vk in [("Status Code","status_code"),("Final URL","final_url"),
+                      ("Protocol","protocol"),("Server","server"),
+                      ("Response Time","response_time"),("Content-Type","content_type")]:
+            http_rows += kv_row(k, hi.get(vk,""))
+        http_body = f'<table style="border-collapse:collapse;width:100%">{http_rows}</table>'
+
+    html = f'''<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Security Report – {esc(d["target"])}</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+  *{{box-sizing:border-box;margin:0;padding:0}}
+  body{{font-family:"Inter",system-ui,sans-serif;background:#f8fafc;color:#1e293b;padding:24px}}
+  @media print{{body{{background:#fff;padding:0}} .no-print{{display:none!important}} .page-break{{page-break-before:always}}}}
+  h1,h2,h3{{line-height:1.3}}
+  code{{font-family:"JetBrains Mono","Fira Code",monospace}}
+  pre{{font-family:"JetBrains Mono","Fira Code",monospace;white-space:pre-wrap;word-break:break-all}}
+</style>
+</head>
+<body>
+<!-- HEADER -->
+<div style="background:linear-gradient(135deg,#1e293b 0%,#0f172a 100%);color:#fff;border-radius:12px;padding:28px 32px;margin-bottom:20px">
+  <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px">
+    <div>
+      <div style="font-size:11px;color:#94a3b8;letter-spacing:2px;text-transform:uppercase;margin-bottom:6px">Security Assessment Report</div>
+      <h1 style="font-size:22px;font-weight:700;margin-bottom:4px">Bug Bounty Hunter Pro</h1>
+      <div style="font-size:15px;color:#cbd5e1">{esc(d["target"])}</div>
+    </div>
+    <div style="text-align:right">
+      <div style="font-size:11px;color:#94a3b8">{esc(d["date"])}</div>
+      <div style="font-size:11px;color:#64748b;margin-top:4px">Scan ID: <code style="color:#818cf8">{esc(d["scan_id"])}</code></div>
+      <div style="font-size:11px;color:#64748b">Type: {esc(d["scan_type"].upper())}</div>
+    </div>
+  </div>
+</div>
+
+<!-- SEVERITY GRID -->
+<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:20px">
+  {"".join(f'''<div style="background:#fff;border:1px solid #e2e8f0;border-top:4px solid {SEV_COLOR_HEX[s]};border-radius:8px;padding:14px;text-align:center">
+    <div style="font-size:24px;font-weight:800;color:{SEV_COLOR_HEX[s]}">{counts.get(s,0)}</div>
+    <div style="font-size:10px;color:#64748b;font-weight:600;letter-spacing:1px">{s}</div>
+  </div>''' for s in ["CRITICAL","HIGH","MEDIUM","LOW","INFO"])}
+</div>
+
+<!-- EXECUTIVE SUMMARY + CHART -->
+<div style="display:grid;grid-template-columns:1fr 220px;gap:16px;margin-bottom:20px">
+  <div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:20px">
+    <h3 style="font-size:14px;color:#1e293b;margin-bottom:10px">📋 Executive Summary</h3>
+    <p style="font-size:13px;color:#475569;line-height:1.7">{esc(d["summary"])}</p>
+  </div>
+  <div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:16px">
+    <h3 style="font-size:13px;color:#1e293b;margin-bottom:10px;text-align:center">Findings Distribution</h3>
+    <canvas id="sevChart" style="max-height:180px"></canvas>
+  </div>
+</div>
+
+<!-- RECON SECTIONS -->
+{section("HTTP Information","🌐", http_body, bool(http_body))}
+{section("Technologies Detected","🔍", f'<div>{tech_badges}</div>' if tech_badges else '<p style="color:#64748b;font-size:12px">None detected</p>')}
+{section("DNS Records","🌍", f'<table style="border-collapse:collapse;width:100%"><thead><tr><th style="font-size:11px;text-align:left;padding:4px 8px;color:#64748b;border-bottom:2px solid #e2e8f0">Type</th><th style="font-size:11px;text-align:left;padding:4px 8px;color:#64748b;border-bottom:2px solid #e2e8f0">Value</th></tr></thead><tbody>{dns_rows}</tbody></table>' if dns_rows else '<p style="color:#64748b;font-size:12px">No records</p>')}
+{section("Subdomains","🕸️", sub_html if sub_html else '<p style="color:#64748b;font-size:12px">None found</p>')}
+{section("Open Ports","🔌", f'<table style="border-collapse:collapse;width:100%"><thead><tr><th style="font-size:11px;text-align:left;padding:4px 8px;color:#64748b;border-bottom:2px solid #e2e8f0">Port</th><th style="font-size:11px;text-align:left;padding:4px 8px;color:#64748b;border-bottom:2px solid #e2e8f0">Service</th></tr></thead><tbody>{port_rows}</tbody></table>' if port_rows else '<p style="color:#64748b;font-size:12px">No open ports found</p>')}
+{section("SSL/TLS", "🔒", ssl_body, bool(ssl_body))}
+{section("Security Headers","🛡️", hdr_html, bool(hdr_html))}
+{section("WHOIS","📋", f'<table style="border-collapse:collapse;width:100%">{whois_rows}</table>' if whois_rows else '<p style="color:#64748b;font-size:12px">No data</p>')}
+{section("Paths Discovered","📂", f'<table style="border-collapse:collapse;width:100%"><thead><tr><th style="font-size:11px;text-align:left;padding:4px 8px;color:#64748b;border-bottom:2px solid #e2e8f0">Status</th><th style="font-size:11px;text-align:left;padding:4px 8px;color:#64748b;border-bottom:2px solid #e2e8f0">Path</th></tr></thead><tbody>{path_rows}</tbody></table>' if path_rows else '<p style="color:#64748b;font-size:12px">None</p>')}
+
+<!-- FINDINGS -->
+<div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:20px;margin-bottom:16px">
+  <h3 style="margin:0 0 16px;font-size:14px;color:#1e293b">🔎 Findings ({d["total"]})</h3>
+  {findings_html()}
+</div>
+
+<!-- FOOTER -->
+<div style="text-align:center;font-size:11px;color:#94a3b8;margin-top:24px;padding-top:16px;border-top:1px solid #e2e8f0">
+  Generated by Bug Bounty Hunter Pro v4.1 — {esc(d["date"])}
+</div>
+
+<script>
+  const ctx = document.getElementById('sevChart');
+  if(ctx) new Chart(ctx, {{
+    type:'doughnut',
+    data:{{labels:['Critical','High','Medium','Low','Info'],datasets:[{{
+      data:{chart_data},
+      backgroundColor:['#ef4444','#f97316','#f59e0b','#3b82f6','#94a3b8'],
+      borderWidth:2,borderColor:'#fff'
+    }}]}},
+    options:{{plugins:{{legend:{{position:'bottom',labels:{{font:{{size:10}},boxWidth:10,padding:6}}}}}},cutout:'60%'}}
+  }});
+</script>
+</body>
+</html>'''
+    return html
+
+# ── PDF Export ────────────────────────────────────────────────────────────────
+
+def export_pdf(scan):
+    """Generate a professional PDF report using reportlab."""
+    if not REPORTLAB_OK:
+        raise RuntimeError("reportlab not installed")
+
+    d = _build_export_data(scan)
+    buf = io.BytesIO()
+
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4,
+        leftMargin=1.5*cm, rightMargin=1.5*cm,
+        topMargin=1.5*cm, bottomMargin=1.5*cm
+    )
+
+    W = A4[0] - 3*cm  # usable width
+
+    styles = getSampleStyleSheet()
+
+    # Custom styles
+    title_style = ParagraphStyle("title", parent=styles["Normal"],
+        fontSize=18, fontName="Helvetica-Bold", textColor=colors.HexColor("#1e293b"),
+        spaceAfter=4)
+    sub_style = ParagraphStyle("sub", parent=styles["Normal"],
+        fontSize=10, fontName="Helvetica", textColor=colors.HexColor("#64748b"),
+        spaceAfter=2)
+    h2_style = ParagraphStyle("h2", parent=styles["Normal"],
+        fontSize=12, fontName="Helvetica-Bold", textColor=colors.HexColor("#1e293b"),
+        spaceBefore=12, spaceAfter=6, borderPad=4,
+        backColor=colors.HexColor("#f8fafc"), borderColor=colors.HexColor("#e2e8f0"),
+        borderWidth=0, leftIndent=0)
+    body_style = ParagraphStyle("body", parent=styles["Normal"],
+        fontSize=9, fontName="Helvetica", textColor=colors.HexColor("#374151"),
+        leading=14, spaceAfter=4)
+    mono_style = ParagraphStyle("mono", parent=styles["Normal"],
+        fontSize=8, fontName="Courier", textColor=colors.HexColor("#475569"),
+        backColor=colors.HexColor("#f1f5f9"), leading=12,
+        leftIndent=6, rightIndent=6, spaceAfter=4)
+    label_style = ParagraphStyle("label", parent=styles["Normal"],
+        fontSize=8, fontName="Helvetica-Bold", textColor=colors.HexColor("#64748b"))
+
+    SEV_COLORS_RL = {
+        "CRITICAL": colors.HexColor("#ef4444"),
+        "HIGH":     colors.HexColor("#f97316"),
+        "MEDIUM":   colors.HexColor("#f59e0b"),
+        "LOW":      colors.HexColor("#3b82f6"),
+        "INFO":     colors.HexColor("#94a3b8"),
+    }
+
+    story = []
+    counts = d["counts"]
+
+    # ── Cover / Header ──
+    # Title block table
+    title_data = [[
+        Paragraph("BUG BOUNTY HUNTER PRO", ParagraphStyle("hdr", fontName="Helvetica-Bold",
+            fontSize=16, textColor=colors.white)),
+        ""
+    ],[
+        Paragraph(f"Security Assessment Report", ParagraphStyle("hdr2", fontName="Helvetica",
+            fontSize=10, textColor=colors.HexColor("#cbd5e1"))),
+        Paragraph(f"{d['date']}", ParagraphStyle("hdr3", fontName="Helvetica",
+            fontSize=9, textColor=colors.HexColor("#94a3b8"), alignment=TA_RIGHT))
+    ],[
+        Paragraph(f"<b>{d['target']}</b>", ParagraphStyle("hdr4", fontName="Helvetica-Bold",
+            fontSize=12, textColor=colors.HexColor("#93c5fd"))),
+        Paragraph(f"Scan ID: {d['scan_id'][:16]}…", ParagraphStyle("hdr5", fontName="Courier",
+            fontSize=8, textColor=colors.HexColor("#64748b"), alignment=TA_RIGHT))
+    ]]
+    title_tbl = Table(title_data, colWidths=[W*0.65, W*0.35])
+    title_tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (-1,-1), colors.HexColor("#0f172a")),
+        ("ROWBACKGROUNDS", (0,0), (-1,-1), [colors.HexColor("#0f172a")]*3),
+        ("TOPPADDING",    (0,0),(-1,-1), 8),
+        ("BOTTOMPADDING", (0,0),(-1,-1), 8),
+        ("LEFTPADDING",   (0,0),(-1,-1), 14),
+        ("RIGHTPADDING",  (0,0),(-1,-1), 14),
+        ("ROUNDEDCORNERS", [8]),
+    ]))
+    story.append(title_tbl)
+    story.append(Spacer(1, 10))
+
+    # ── Severity Summary ──
+    sev_data = [
+        [Paragraph(f"<b>{counts.get(s,0)}</b>", ParagraphStyle(f"sc_{s}",
+            fontName="Helvetica-Bold", fontSize=20,
+            textColor=SEV_COLORS_RL.get(s, colors.grey), alignment=TA_CENTER))
+         for s in ["CRITICAL","HIGH","MEDIUM","LOW","INFO"]],
+        [Paragraph(s, ParagraphStyle(f"sl_{s}", fontName="Helvetica",
+            fontSize=8, textColor=colors.HexColor("#64748b"), alignment=TA_CENTER))
+         for s in ["CRITICAL","HIGH","MEDIUM","LOW","INFO"]]
+    ]
+    sev_tbl = Table(sev_data, colWidths=[W/5]*5)
+    sev_tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (-1,-1), colors.HexColor("#ffffff")),
+        ("BOX", (0,0), (-1,-1), 0.5, colors.HexColor("#e2e8f0")),
+        ("INNERGRID", (0,0), (-1,-1), 0.5, colors.HexColor("#e2e8f0")),
+        ("TOPPADDING", (0,0),(-1,-1), 10),
+        ("BOTTOMPADDING", (0,0),(-1,-1), 10),
+        ("LINEABOVE", (0,0),(0,-1), 3, SEV_COLORS_RL["CRITICAL"]),
+        ("LINEABOVE", (1,0),(1,-1), 3, SEV_COLORS_RL["HIGH"]),
+        ("LINEABOVE", (2,0),(2,-1), 3, SEV_COLORS_RL["MEDIUM"]),
+        ("LINEABOVE", (3,0),(3,-1), 3, SEV_COLORS_RL["LOW"]),
+        ("LINEABOVE", (4,0),(4,-1), 3, SEV_COLORS_RL["INFO"]),
+    ]))
+    story.append(sev_tbl)
+    story.append(Spacer(1, 10))
+
+    # ── Executive Summary ──
+    story.append(Paragraph("Executive Summary", h2_style))
+    story.append(Paragraph(d["summary"] or "No summary available.", body_style))
+    story.append(HRFlowable(width=W, thickness=0.5, color=colors.HexColor("#e2e8f0")))
+    story.append(Spacer(1, 6))
+
+    # ── HTTP Info ──
+    if d["http_info"] and not d["http_info"].get("error"):
+        hi = d["http_info"]
+        story.append(Paragraph("HTTP Information", h2_style))
+        rows = [[Paragraph(k, label_style), Paragraph(str(v or ""), body_style)]
+                for k, v in [("Status Code", hi.get("status_code","")),
+                             ("Final URL", hi.get("final_url","")),
+                             ("Protocol", hi.get("protocol","")),
+                             ("Server", hi.get("server","")),
+                             ("Response Time", f"{hi.get('response_time',0):.2f}s")] if v]
+        if rows:
+            tbl = Table(rows, colWidths=[3*cm, W-3*cm])
+            tbl.setStyle(TableStyle([
+                ("INNERGRID",(0,0),(-1,-1),0.25,colors.HexColor("#f1f5f9")),
+                ("TOPPADDING",(0,0),(-1,-1),3),("BOTTOMPADDING",(0,0),(-1,-1),3),
+                ("LEFTPADDING",(0,0),(-1,-1),6),
+            ]))
+            story.append(tbl)
+        story.append(Spacer(1, 8))
+
+    # ── Technologies ──
+    if d["technologies"]:
+        story.append(Paragraph("Technologies Detected", h2_style))
+        tech_text = "  ".join(
+            f"{t.get('name','')}{(' v'+t['version']) if t.get('version') else ''}"
+            for t in d["technologies"]
+        )
+        story.append(Paragraph(tech_text, body_style))
+        story.append(Spacer(1, 8))
+
+    # ── Subdomains ──
+    if d["subdomains"]:
+        story.append(Paragraph(f"Subdomains ({len(d['subdomains'])} found)", h2_style))
+        subs = sorted(d["subdomains"])[:40]
+        chunk_size = 3
+        rows = [subs[i:i+chunk_size] + [""]*(chunk_size-len(subs[i:i+chunk_size]))
+                for i in range(0, len(subs), chunk_size)]
+        if rows:
+            tbl = Table(
+                [[Paragraph(s, mono_style) for s in row] for row in rows],
+                colWidths=[W/3]*3
+            )
+            tbl.setStyle(TableStyle([
+                ("INNERGRID",(0,0),(-1,-1),0.25,colors.HexColor("#f1f5f9")),
+                ("TOPPADDING",(0,0),(-1,-1),2),("BOTTOMPADDING",(0,0),(-1,-1),2),
+            ]))
+            story.append(tbl)
+        if len(d["subdomains"]) > 40:
+            story.append(Paragraph(f"… and {len(d['subdomains'])-40} more", sub_style))
+        story.append(Spacer(1, 8))
+
+    # ── Open Ports ──
+    if d["ports"]:
+        story.append(Paragraph("Open Ports", h2_style))
+        rows = [[Paragraph("Port", label_style), Paragraph("Service", label_style)]] + \
+               [[Paragraph(str(p.get("port","")), mono_style),
+                 Paragraph(p.get("service",""), body_style)] for p in d["ports"][:20]]
+        tbl = Table(rows, colWidths=[2*cm, W-2*cm])
+        tbl.setStyle(TableStyle([
+            ("BACKGROUND",(0,0),(-1,0), colors.HexColor("#f8fafc")),
+            ("INNERGRID",(0,0),(-1,-1),0.25,colors.HexColor("#e2e8f0")),
+            ("BOX",(0,0),(-1,-1),0.5,colors.HexColor("#e2e8f0")),
+            ("TOPPADDING",(0,0),(-1,-1),4),("BOTTOMPADDING",(0,0),(-1,-1),4),
+            ("LEFTPADDING",(0,0),(-1,-1),6),
+        ]))
+        story.append(tbl)
+        story.append(Spacer(1, 8))
+
+    # ── SSL ──
+    if d["ssl"] and not d["ssl"].get("error"):
+        sl = d["ssl"]
+        story.append(Paragraph("SSL/TLS", h2_style))
+        rows = [[Paragraph(k, label_style), Paragraph(str(v or ""), body_style)]
+                for k, v in [("Grade", sl.get("grade","")), ("Subject", sl.get("subject","")),
+                             ("Issuer", sl.get("issuer","")), ("Expires", sl.get("valid_to",""))] if v]
+        if rows:
+            tbl = Table(rows, colWidths=[3*cm, W-3*cm])
+            tbl.setStyle(TableStyle([
+                ("INNERGRID",(0,0),(-1,-1),0.25,colors.HexColor("#f1f5f9")),
+                ("TOPPADDING",(0,0),(-1,-1),3),("BOTTOMPADDING",(0,0),(-1,-1),3),
+                ("LEFTPADDING",(0,0),(-1,-1),6),
+            ]))
+            story.append(tbl)
+        story.append(Spacer(1, 8))
+
+    # ── Security Headers ──
+    miss = (d["headers"] or {}).get("missing", [])
+    pres = (d["headers"] or {}).get("present", [])
+    if miss or pres:
+        story.append(Paragraph("Security Headers", h2_style))
+        if pres:
+            story.append(Paragraph("Present:", label_style))
+            for h in pres:
+                story.append(Paragraph(f"  ✓  {h}", ParagraphStyle("ok",
+                    fontName="Helvetica", fontSize=9, textColor=colors.HexColor("#15803d"),leading=14)))
+        if miss:
+            story.append(Paragraph("Missing:", label_style))
+            for h in miss:
+                story.append(Paragraph(f"  ✗  {h}", ParagraphStyle("miss",
+                    fontName="Helvetica", fontSize=9, textColor=colors.HexColor("#dc2626"),leading=14)))
+        story.append(Spacer(1, 8))
+
+    # ── Findings ── (page break before)
+    story.append(PageBreak())
+    story.append(Paragraph(f"Findings  ({d['total']} total)", h2_style))
+    story.append(Spacer(1, 4))
+
+    if not d["findings"]:
+        story.append(Paragraph("No significant findings.", body_style))
+    else:
+        for f in d["findings"]:
+            sev = f.get("severity","INFO")
+            col = SEV_COLORS_RL.get(sev, colors.grey)
+            # Finding block
+            find_data = [[
+                Paragraph(f"<b>{sev}</b>", ParagraphStyle("fb",
+                    fontName="Helvetica-Bold", fontSize=9,
+                    textColor=colors.white, alignment=TA_CENTER)),
+                Paragraph(f"<b>{f.get('id','')}  {f.get('type','')}</b>  "
+                          f"<font color='#94a3b8' size='8'>CVSS {f.get('cvss',{}).get('score','N/A')}</font>",
+                    ParagraphStyle("fh", fontName="Helvetica", fontSize=10, textColor=colors.HexColor("#1e293b")))
+            ]]
+            hdr_tbl = Table(find_data, colWidths=[2.2*cm, W-2.2*cm])
+            hdr_tbl.setStyle(TableStyle([
+                ("BACKGROUND",(0,0),(0,0), col),
+                ("BACKGROUND",(1,0),(1,0), colors.HexColor("#f8fafc")),
+                ("BOX",(0,0),(-1,-1), 0.5, col),
+                ("TOPPADDING",(0,0),(-1,-1),6),("BOTTOMPADDING",(0,0),(-1,-1),6),
+                ("LEFTPADDING",(0,0),(-1,-1),8),
+            ]))
+            body_items = [hdr_tbl]
+            body_items.append(Paragraph(f.get("description","N/A"), body_style))
+            body_items.append(Paragraph(f"<b>Affected:</b> {f.get('affected','')}", body_style))
+            if f.get("remediation"):
+                body_items.append(Paragraph(f"<b>Remediation:</b> {f['remediation'][:300]}", body_style))
+            if f.get("poc"):
+                body_items.append(Paragraph(f.get("poc","")[:200], mono_style))
+
+            find_block = KeepTogether(body_items + [Spacer(1, 8)])
+            story.append(find_block)
+
+    # ── Footer ──
+    story.append(HRFlowable(width=W, thickness=0.5, color=colors.HexColor("#e2e8f0")))
+    story.append(Spacer(1, 6))
+    story.append(Paragraph(
+        f"Generated by Bug Bounty Hunter Pro v4.1  —  {d['date']}",
+        ParagraphStyle("footer", fontName="Helvetica", fontSize=8,
+                       textColor=colors.HexColor("#94a3b8"), alignment=TA_CENTER)
+    ))
+
+    doc.build(story)
+    buf.seek(0)
+    return buf
+
 # ─── Main scan orchestrator ───────────────────────────────────────────────────
+
 
 def run_full_scan(scan_id, raw_target, scan_type):
     """All-phases scan running in background thread."""
@@ -2304,6 +3015,75 @@ def scan_report(sid):
         return jsonify({"error":"Report not ready"}), 400
     return jsonify(r)
 
+@app.route('/api/scan/<sid>/export')
+def scan_export(sid):
+    """Export scan report in txt / html / pdf format.
+    Query param: ?format=txt|html|pdf  (default: txt)
+    """
+    if sid not in active_scans:
+        return jsonify({"error":"Not found"}), 404
+
+    scan = active_scans[sid]
+    if not scan.get("poc_report"):
+        return jsonify({"error":"Report not ready — complete the scan first"}), 400
+
+    fmt = request.args.get("format", "txt").lower().strip()
+    target_slug = re.sub(r'[^a-zA-Z0-9._-]', '_', scan.get("target","scan"))[:40]
+    date_slug   = datetime.now().strftime("%Y%m%d_%H%M")
+    filename    = f"bbhpro_{target_slug}_{date_slug}"
+
+    try:
+        if fmt == "txt":
+            content  = export_txt(scan)
+            response = Response(
+                content,
+                mimetype="text/plain; charset=utf-8",
+                headers={"Content-Disposition": f'attachment; filename="{filename}.txt"'}
+            )
+            return response
+
+        elif fmt == "html":
+            content  = export_html(scan)
+            response = Response(
+                content,
+                mimetype="text/html; charset=utf-8",
+                headers={"Content-Disposition": f'attachment; filename="{filename}.html"'}
+            )
+            return response
+
+        elif fmt == "pdf":
+            if not REPORTLAB_OK:
+                return jsonify({"error":"PDF not available (reportlab not installed)"}), 500
+            buf = export_pdf(scan)
+            return send_file(
+                buf,
+                mimetype="application/pdf",
+                as_attachment=True,
+                download_name=f"{filename}.pdf"
+            )
+
+        else:
+            return jsonify({"error": f"Unsupported format '{fmt}'. Use txt, html, or pdf"}), 400
+
+    except Exception as e:
+        return jsonify({"error": f"Export failed: {str(e)}"}), 500
+
+@app.route('/api/scan/<sid>/export/available')
+def scan_export_available(sid):
+    """Return available export formats for a scan."""
+    if sid not in active_scans:
+        return jsonify({"error":"Not found"}), 404
+    scan = active_scans[sid]
+    ready = bool(scan.get("poc_report"))
+    return jsonify({
+        "ready": ready,
+        "formats": {
+            "txt":  {"available": True,          "label": "Plain Text (.txt)",   "icon": "fa-file-alt"},
+            "html": {"available": True,           "label": "HTML Report (.html)", "icon": "fa-file-code"},
+            "pdf":  {"available": REPORTLAB_OK,   "label": "PDF Report (.pdf)",   "icon": "fa-file-pdf"},
+        }
+    })
+
 @app.route('/api/tools/dns', methods=['POST'])
 def tool_dns():
     raw = (request.json or {}).get('target','').strip()
@@ -2543,5 +3323,5 @@ def tool_assetfinder():
     return jsonify(run_assetfinder(raw))
 
 if __name__ == '__main__':
-    print("[*] Bug Bounty Hunter Pro API v3.0 starting on :5000")
+    print("[*] Bug Bounty Hunter Pro API v4.1 starting on :5000")
     app.run(host='127.0.0.1', port=5000, debug=False, threaded=True)

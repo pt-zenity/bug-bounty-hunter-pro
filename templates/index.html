@@ -1403,8 +1403,20 @@
             <!-- REPORTS PAGE -->
             <div class="page" id="page-reports">
                 <div class="card">
-                    <div class="card-header">
-                        <h2><i class="fas fa-file-alt"></i> Scan Reports</h2>
+                    <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+                        <h2><i class="fas fa-file-alt"></i> Scan Reports &amp; Export</h2>
+                        <div style="display:flex;align-items:center;gap:8px">
+                            <span style="font-size:11px;color:var(--text-muted)">Export all scans:</span>
+                            <button class="btn btn-sm" onclick="exportAllScans('txt')" title="Export all as TXT" style="font-size:11px;padding:5px 10px">
+                                <i class="fas fa-file-alt"></i> TXT
+                            </button>
+                            <button class="btn btn-sm" onclick="exportAllScans('html')" title="Export all as HTML" style="font-size:11px;padding:5px 10px">
+                                <i class="fas fa-file-code"></i> HTML
+                            </button>
+                            <button class="btn btn-sm" onclick="exportAllScans('pdf')" title="Export all as PDF" style="font-size:11px;padding:5px 10px;background:rgba(239,68,68,0.1);border-color:rgba(239,68,68,0.3);color:#ef4444">
+                                <i class="fas fa-file-pdf"></i> PDF
+                            </button>
+                        </div>
                     </div>
                     <div class="card-body">
                         <div id="reportsContent">
@@ -1426,6 +1438,7 @@
             <div class="spinner-ring"></div>
             <p id="loadingText">Processing...</p>
         </div>
+
     </div>
     
     <!-- Toast Notifications -->

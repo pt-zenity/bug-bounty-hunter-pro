@@ -367,19 +367,23 @@ function onScanComplete(scan, scanId) {
         eventSource.close();
         eventSource = null;
     }
-    
+
     resetScanBtn();
-    
+
     allScans[scanId] = scan;
-    
+    window._activeScanId = scanId;   // store for export buttons
+
     showToast(`✅ Scan complete! ${scan.findings?.length || 0} findings`, 'success');
-    
+
+    // Show export bar below progress
+    renderScanExportBar(scanId);
+
     // Update results count badge
     document.getElementById('resultsCount').textContent = Object.keys(allScans).length;
-    
+
     // Load reports
     loadReports();
-    
+
     // Refresh dashboard
     refreshScans();
 }
@@ -399,6 +403,46 @@ function resetScanBtn() {
         btn.disabled = false;
         btn.innerHTML = '<i class="fas fa-play"></i> Start Live Scan';
     }
+}
+
+function renderScanExportBar(scanId) {
+    // Insert export bar after the progress section in the scanner page
+    let bar = document.getElementById('scanExportBar');
+    if (!bar) {
+        // Find a good anchor: the progress card
+        const progressCard = document.querySelector('#page-scanner .scan-progress-card') ||
+                             document.querySelector('#page-scanner .card');
+        if (!progressCard) return;
+        bar = document.createElement('div');
+        bar.id = 'scanExportBar';
+        progressCard.parentNode.insertBefore(bar, progressCard.nextSibling);
+    }
+    bar.innerHTML = `
+        <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:10px;padding:12px 16px;margin-top:12px;display:flex;align-items:center;flex-wrap:wrap;gap:10px">
+            <i class="fas fa-check-circle" style="color:#10b981;font-size:16px"></i>
+            <span style="font-size:13px;color:#10b981;font-weight:600">Scan Complete!</span>
+            <span style="font-size:12px;color:var(--text-muted)">Download report:</span>
+            <button onclick="downloadExport('${scanId}','txt')"
+                style="padding:6px 14px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);border-radius:6px;color:#818cf8;font-size:12px;cursor:pointer;font-weight:600">
+                <i class="fas fa-file-alt"></i> .TXT
+            </button>
+            <button onclick="downloadExport('${scanId}','html')"
+                style="padding:6px 14px;background:rgba(6,182,212,0.15);border:1px solid rgba(6,182,212,0.3);border-radius:6px;color:#06b6d4;font-size:12px;cursor:pointer;font-weight:600">
+                <i class="fas fa-file-code"></i> .HTML
+            </button>
+            <button onclick="downloadExport('${scanId}','pdf')"
+                style="padding:6px 14px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.3);border-radius:6px;color:#ef4444;font-size:12px;cursor:pointer;font-weight:600">
+                <i class="fas fa-file-pdf"></i> .PDF
+            </button>
+            <button onclick="exportScanJson('${scanId}')"
+                style="padding:6px 14px;background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.3);border-radius:6px;color:#f59e0b;font-size:12px;cursor:pointer;font-weight:600">
+                <i class="fas fa-code"></i> .JSON
+            </button>
+            <button onclick="exportScanMarkdown('${scanId}')"
+                style="padding:6px 14px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:var(--text-secondary);font-size:12px;cursor:pointer;font-weight:600">
+                <i class="fas fa-hashtag"></i> .MD
+            </button>
+        </div>`;
 }
 
 // ─── Scan History & Dashboard ─────────────────────────────────────────────────
@@ -517,20 +561,34 @@ async function viewScanDetail(scanId) {
     try {
         const resp = await fetch(`${API_BASE}/scan/${scanId}`);
         const scan = await resp.json();
-        
+
+        window._currentViewScanId = scanId;  // store for export
+
         const panel = document.getElementById('scanDetailPanel');
         const content = document.getElementById('scanDetailContent');
         const title = document.getElementById('detailTitle');
-        
+
         title.textContent = `Scan: ${scan.target} (${scan.status})`;
-        
+
         // Render findings
         const findings = scan.findings || [];
         const dns = scan.dns || [];
         const ports = scan.ports || [];
         const techs = scan.technologies || [];
-        
+
+        const isCompleted = scan.status === 'completed';
+        const exportBarHtml = isCompleted ? `
+            <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;flex-wrap:wrap;gap:8px">
+                <span style="font-size:11px;color:var(--text-muted)"><i class="fas fa-download"></i> Export report:</span>
+                <button onclick="downloadExport('${scanId}','txt')" style="padding:5px 12px;background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.25);border-radius:5px;color:#818cf8;font-size:11px;cursor:pointer;font-weight:600"><i class="fas fa-file-alt"></i> TXT</button>
+                <button onclick="downloadExport('${scanId}','html')" style="padding:5px 12px;background:rgba(6,182,212,0.12);border:1px solid rgba(6,182,212,0.25);border-radius:5px;color:#06b6d4;font-size:11px;cursor:pointer;font-weight:600"><i class="fas fa-file-code"></i> HTML</button>
+                <button onclick="downloadExport('${scanId}','pdf')" style="padding:5px 12px;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.25);border-radius:5px;color:#ef4444;font-size:11px;cursor:pointer;font-weight:600"><i class="fas fa-file-pdf"></i> PDF</button>
+                <button onclick="exportScanJson('${scanId}')" style="padding:5px 12px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.25);border-radius:5px;color:#f59e0b;font-size:11px;cursor:pointer;font-weight:600"><i class="fas fa-code"></i> JSON</button>
+                <button onclick="exportScanMarkdown('${scanId}')" style="padding:5px 12px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:5px;color:var(--text-secondary);font-size:11px;cursor:pointer;font-weight:600"><i class="fas fa-hashtag"></i> MD</button>
+            </div>` : '';
+
         content.innerHTML = `
+            ${exportBarHtml}
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:20px">
                 <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;padding:14px;text-align:center">
                     <div style="font-size:24px;font-weight:800;color:var(--accent)">${findings.length}</div>
@@ -545,7 +603,7 @@ async function viewScanDetail(scanId) {
                     <div style="font-size:11px;color:var(--text-muted)">DNS RECORDS</div>
                 </div>
             </div>
-            
+
             ${findings.length > 0 ? `
                 <h3 style="font-size:14px;margin-bottom:12px;color:var(--text-secondary)"><i class="fas fa-bug"></i> Findings (${findings.length})</h3>
                 ${findings.map(f => `
@@ -560,7 +618,7 @@ async function viewScanDetail(scanId) {
                     </div>
                 `).join('')}
             ` : '<div class="empty-state"><i class="fas fa-shield-alt fa-2x"></i><p>No findings recorded</p></div>'}
-            
+
             ${dns.length > 0 ? `
                 <h3 style="font-size:14px;margin:20px 0 12px;color:var(--text-secondary)"><i class="fas fa-network-wired"></i> DNS Records</h3>
                 ${dns.map(r => `
@@ -570,7 +628,7 @@ async function viewScanDetail(scanId) {
                     </div>
                 `).join('')}
             ` : ''}
-            
+
             ${ports.length > 0 ? `
                 <h3 style="font-size:14px;margin:20px 0 12px;color:var(--text-secondary)"><i class="fas fa-plug"></i> Open Ports</h3>
                 <table class="port-table">
@@ -586,10 +644,10 @@ async function viewScanDetail(scanId) {
                 </table>
             ` : ''}
         `;
-        
+
         panel.style.display = 'block';
         panel.scrollIntoView({ behavior: 'smooth' });
-        
+
     } catch (err) {
         showToast('Failed to load scan detail', 'error');
     }
@@ -1991,79 +2049,223 @@ function copyPoC() {
     });
 }
 
-// ─── Reports ─────────────────────────────────────────────────────────────────
+// ─── Reports & Export ─────────────────────────────────────────────────────────
 
 async function loadReports() {
     const container = document.getElementById('reportsContent');
     if (!container) return;
-    
+
     const scans = Object.values(allScans).filter(s => s.status === 'completed');
-    
+
     if (scans.length === 0) {
         container.innerHTML = `
             <div class="empty-state">
                 <i class="fas fa-file-alt fa-3x"></i>
                 <p>Complete a scan to generate reports here</p>
-            </div>
-        `;
+            </div>`;
         return;
     }
-    
+
     const reportsHtml = await Promise.all(scans.map(async scan => {
         let report = null;
         try {
             const resp = await fetch(`${API_BASE}/scan/${scan.id}/report`);
             if (resp.ok) report = await resp.json();
         } catch {}
-        
+
         if (!report) return '';
-        
+
         const c = report.severity_counts || {};
-        
+        const hasCritical = c.CRITICAL > 0, hasHigh = c.HIGH > 0;
+
         return `
-            <div class="report-card">
-                <div class="report-header">
-                    <div>
-                        <div class="report-target">${escapeHtml(report.target || scan.target)}</div>
-                        <div class="report-date">${report.date || formatDate(scan.started)}</div>
-                    </div>
-                    <div class="report-stats">
-                        ${c.CRITICAL ? `<span class="sev-badge CRITICAL">🔴 ${c.CRITICAL} Critical</span>` : ''}
-                        ${c.HIGH ? `<span class="sev-badge HIGH">🟠 ${c.HIGH} High</span>` : ''}
-                        ${c.MEDIUM ? `<span class="sev-badge MEDIUM">🟡 ${c.MEDIUM} Medium</span>` : ''}
-                        ${c.LOW ? `<span class="sev-badge LOW">🟢 ${c.LOW} Low</span>` : ''}
-                    </div>
+        <div class="report-card" style="margin-bottom:16px">
+            <div class="report-header">
+                <div>
+                    <div class="report-target">${escapeHtml(report.target || scan.target)}</div>
+                    <div class="report-date" style="font-size:11px;color:var(--text-muted)">${report.date || formatDate(scan.started)}</div>
                 </div>
-                
-                <p style="font-size:12px;color:var(--text-secondary);margin-bottom:16px">${escapeHtml(report.executive_summary || '')}</p>
-                
-                <div style="display:flex;gap:8px;margin-bottom:12px">
-                    <button class="btn btn-sm" onclick="exportScanMarkdown('${scan.id}')" title="Export Markdown">
-                        <i class="fas fa-file-alt"></i> Export MD
-                    </button>
-                    <button class="btn btn-sm" onclick="exportScanJson('${scan.id}')" title="Export JSON">
-                        <i class="fas fa-download"></i> Export JSON
-                    </button>
+                <div class="report-stats" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+                    ${c.CRITICAL ? `<span class="sev-badge CRITICAL">🔴 ${c.CRITICAL}</span>` : ''}
+                    ${c.HIGH     ? `<span class="sev-badge HIGH">🟠 ${c.HIGH}</span>`         : ''}
+                    ${c.MEDIUM   ? `<span class="sev-badge MEDIUM">🟡 ${c.MEDIUM}</span>`     : ''}
+                    ${c.LOW      ? `<span class="sev-badge LOW">🟢 ${c.LOW}</span>`           : ''}
+                    ${c.INFO     ? `<span class="sev-badge INFO">🔵 ${c.INFO}</span>`         : ''}
                 </div>
-                
-                ${report.findings?.slice(0, 5).map(f => `
-                    <div class="report-finding-item">
-                        <div class="report-finding-header">
-                            <span class="sev-badge ${f.severity}">${f.severity}</span>
-                            <span class="report-finding-id">${f.id}</span>
-                            <span class="report-finding-title">${escapeHtml(f.type || 'Finding')}</span>
-                            <span style="font-size:11px;color:var(--text-muted)">CVSS: ${f.cvss?.score || 'N/A'}</span>
-                        </div>
-                        <div class="report-finding-desc">${escapeHtml(f.description || '')}</div>
-                        ${f.poc ? `<div class="report-finding-poc">${escapeHtml(f.poc)}</div>` : ''}
-                        ${f.remediation ? `<div class="report-finding-rem">${escapeHtml(f.remediation)}</div>` : ''}
-                    </div>
-                `).join('') || '<div style="color:var(--text-muted);font-size:12px">No significant findings in this scan.</div>'}
             </div>
-        `;
+
+            <p style="font-size:12px;color:var(--text-secondary);margin:10px 0 12px;line-height:1.6">
+                ${escapeHtml(report.executive_summary || '')}
+            </p>
+
+            <!-- Export Buttons -->
+            <div style="display:flex;flex-wrap:wrap;gap:7px;margin-bottom:14px;padding:10px 12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:8px;align-items:center">
+                <span style="font-size:11px;color:var(--text-muted);margin-right:4px"><i class="fas fa-download"></i> Export:</span>
+                <button class="btn btn-sm" onclick="downloadExport('${escapeHtml(scan.id)}','txt')"
+                    style="font-size:11px;padding:5px 12px;background:rgba(99,102,241,0.1);border-color:rgba(99,102,241,0.3);color:#818cf8">
+                    <i class="fas fa-file-alt"></i> .TXT
+                </button>
+                <button class="btn btn-sm" onclick="downloadExport('${escapeHtml(scan.id)}','html')"
+                    style="font-size:11px;padding:5px 12px;background:rgba(6,182,212,0.1);border-color:rgba(6,182,212,0.3);color:#06b6d4">
+                    <i class="fas fa-file-code"></i> .HTML
+                </button>
+                <button class="btn btn-sm" onclick="downloadExport('${escapeHtml(scan.id)}','pdf')"
+                    style="font-size:11px;padding:5px 12px;background:rgba(239,68,68,0.1);border-color:rgba(239,68,68,0.3);color:#ef4444">
+                    <i class="fas fa-file-pdf"></i> .PDF
+                </button>
+                <span style="margin-left:auto;font-size:10px;color:var(--text-muted)">
+                    ${(c.CRITICAL||0)+(c.HIGH||0)+(c.MEDIUM||0)+(c.LOW||0)+(c.INFO||0)} finding(s) total
+                </span>
+            </div>
+
+            <!-- Top Findings Preview -->
+            ${(report.findings || []).slice(0, 5).map(f => `
+                <div class="report-finding-item" style="margin-bottom:8px">
+                    <div class="report-finding-header" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                        <span class="sev-badge ${escapeHtml(f.severity)}">${escapeHtml(f.severity)}</span>
+                        <span class="report-finding-id" style="font-size:10px;color:var(--text-muted)">${escapeHtml(f.id||'')}</span>
+                        <span class="report-finding-title" style="font-size:12px;font-weight:600">${escapeHtml(f.type || 'Finding')}</span>
+                        <span style="font-size:10px;color:var(--text-muted);margin-left:auto">CVSS ${escapeHtml(String(f.cvss?.score||'N/A'))}</span>
+                    </div>
+                    <div class="report-finding-desc" style="font-size:12px;color:var(--text-secondary);margin-top:4px">${escapeHtml(f.description || '')}</div>
+                    ${f.poc         ? `<div class="report-finding-poc" style="font-size:11px">${escapeHtml(f.poc)}</div>` : ''}
+                    ${f.remediation ? `<div class="report-finding-rem" style="font-size:11px">${escapeHtml(f.remediation)}</div>` : ''}
+                </div>`).join('') ||
+                '<div style="color:var(--text-muted);font-size:12px;padding:8px 0">No significant findings.</div>'
+            }
+            ${(report.findings||[]).length > 5 ? `
+                <div style="font-size:11px;color:var(--text-muted);text-align:center;margin-top:6px">
+                    … and ${(report.findings.length-5)} more finding(s). Export to see all.
+                </div>` : ''}
+        </div>`;
     }));
-    
-    container.innerHTML = reportsHtml.join('') || '<div class="empty-state"><i class="fas fa-file-alt fa-3x"></i><p>No reports yet</p></div>';
+
+    container.innerHTML = reportsHtml.filter(Boolean).join('') ||
+        '<div class="empty-state"><i class="fas fa-file-alt fa-3x"></i><p>No reports yet</p></div>';
+}
+
+// ─── Export / Download helpers ────────────────────────────────────────────────
+
+/**
+ * Trigger a file download from the export endpoint.
+ * format: 'txt' | 'html' | 'pdf'
+ */
+async function downloadExport(scanId, format) {
+    if (!scanId) { showToast('No scan ID', 'error'); return; }
+
+    showToast(`Preparing ${format.toUpperCase()} export…`, 'info');
+
+    try {
+        const url = `${API_BASE}/scan/${scanId}/export?format=${encodeURIComponent(format)}`;
+        const resp = await fetch(url);
+
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({ error: resp.statusText }));
+            showToast(`Export failed: ${err.error || resp.statusText}`, 'error');
+            return;
+        }
+
+        // Extract filename from Content-Disposition header
+        const cd = resp.headers.get('Content-Disposition') || '';
+        const fnMatch = cd.match(/filename="([^"]+)"/);
+        const filename = fnMatch ? fnMatch[1] : `bbhpro_report.${format}`;
+
+        const blob = await resp.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(blobUrl);
+
+        showToast(`${format.toUpperCase()} exported: ${filename}`, 'success');
+    } catch(err) {
+        showToast(`Export error: ${err.message}`, 'error');
+    }
+}
+
+/**
+ * Export ALL completed scans (each as separate download).
+ */
+async function exportAllScans(format) {
+    const scans = Object.values(allScans).filter(s => s.status === 'completed');
+    if (scans.length === 0) {
+        showToast('No completed scans to export', 'error');
+        return;
+    }
+    showToast(`Exporting ${scans.length} scan(s) as ${format.toUpperCase()}…`, 'info');
+    for (const scan of scans) {
+        await downloadExport(scan.id, format);
+        await new Promise(r => setTimeout(r, 400)); // small delay between downloads
+    }
+}
+
+/**
+ * Export current scan from the results / scan-viewer page.
+ * Reads the scanId from the active scan state.
+ */
+function exportCurrentScan(format) {
+    const scanId = window._currentViewScanId || window._activeScanId;
+    if (!scanId) {
+        showToast('No active scan to export', 'error');
+        return;
+    }
+    downloadExport(scanId, format);
+}
+
+// Legacy compatibility – keep old JSON export working
+async function exportScanJson(scanId) {
+    try {
+        const resp = await fetch(`${API_BASE}/scan/${scanId}/report`);
+        if (!resp.ok) { showToast('Report not ready', 'error'); return; }
+        const data = await resp.json();
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href = url; a.download = `bbhpro_${scanId}_report.json`;
+        document.body.appendChild(a); a.click();
+        document.body.removeChild(a); URL.revokeObjectURL(url);
+        showToast('JSON exported!', 'success');
+    } catch(err) {
+        showToast('Export error: ' + err.message, 'error');
+    }
+}
+
+async function exportScanMarkdown(scanId) {
+    try {
+        const resp = await fetch(`${API_BASE}/scan/${scanId}/report`);
+        if (!resp.ok) { showToast('Report not ready', 'error'); return; }
+        const d = await resp.json();
+        const c = d.severity_counts || {};
+        let md = `# Security Report – ${d.target || ''}\n\n`;
+        md += `**Date:** ${d.date}  **Scan ID:** ${scanId}\n\n`;
+        md += `## Executive Summary\n${d.executive_summary || ''}\n\n`;
+        md += `## Severity Summary\n`;
+        md += `| Severity | Count |\n|---|---|\n`;
+        for (const s of ['CRITICAL','HIGH','MEDIUM','LOW','INFO'])
+            md += `| ${s} | ${c[s]||0} |\n`;
+        md += `\n## Findings\n\n`;
+        for (const f of (d.findings || [])) {
+            md += `### [${f.severity}] ${f.type} (${f.id})\n`;
+            md += `- **CVSS:** ${f.cvss?.score||'N/A'}\n`;
+            md += `- **Affected:** \`${f.affected||''}\`\n`;
+            md += `- **Description:** ${f.description||''}\n`;
+            if (f.remediation) md += `- **Remediation:** ${f.remediation}\n`;
+            if (f.poc) md += `\`\`\`\n${f.poc}\n\`\`\`\n`;
+            md += '\n';
+        }
+        const blob = new Blob([md], { type: 'text/markdown' });
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href = url; a.download = `bbhpro_${scanId}_report.md`;
+        document.body.appendChild(a); a.click();
+        document.body.removeChild(a); URL.revokeObjectURL(url);
+        showToast('Markdown exported!', 'success');
+    } catch(err) {
+        showToast('Export error: ' + err.message, 'error');
+    }
 }
 
 // ─── Chart ────────────────────────────────────────────────────────────────────
