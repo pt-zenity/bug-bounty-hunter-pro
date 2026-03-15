@@ -95,10 +95,42 @@
                 <i class="fas fa-search"></i>
                 <span>Subfinder</span>
             </a>
+            <a href="#" class="nav-item" data-page="amass">
+                <i class="fas fa-layer-group"></i>
+                <span>Amass</span>
+            </a>
+            <a href="#" class="nav-item" data-page="assetfinder">
+                <i class="fas fa-sitemap"></i>
+                <span>Assetfinder</span>
+            </a>
             <a href="#" class="nav-item" data-page="whatweb">
                 <i class="fas fa-fingerprint"></i>
                 <span>WhatWeb</span>
             </a>
+            <a href="#" class="nav-item" data-page="httpx">
+                <i class="fas fa-wifi"></i>
+                <span>HTTPX Probe</span>
+            </a>
+            <a href="#" class="nav-item" data-page="dnsx">
+                <i class="fas fa-dns" style="font-style:normal">DNS</i>
+                <span>DNSX</span>
+            </a>
+            <a href="#" class="nav-item" data-page="gau">
+                <i class="fas fa-history"></i>
+                <span>GAU URLs</span>
+            </a>
+            <a href="#" class="nav-item" data-page="waybackurls">
+                <i class="fas fa-archive"></i>
+                <span>Wayback URLs</span>
+            </a>
+            <a href="#" class="nav-item" data-page="katana">
+                <i class="fas fa-spider"></i>
+                <span>Katana Crawler</span>
+            </a>
+        </div>
+
+        <div class="nav-section">
+            <div class="nav-label">VULN TOOLS</div>
             <a href="#" class="nav-item" data-page="nikto">
                 <i class="fas fa-bug"></i>
                 <span>Nikto Scanner</span>
@@ -110,6 +142,22 @@
             <a href="#" class="nav-item" data-page="nuclei">
                 <i class="fas fa-radiation"></i>
                 <span>Nuclei</span>
+            </a>
+            <a href="#" class="nav-item" data-page="dalfox">
+                <i class="fas fa-terminal"></i>
+                <span>Dalfox XSS</span>
+            </a>
+            <a href="#" class="nav-item" data-page="sqlmap">
+                <i class="fas fa-database"></i>
+                <span>SQLMap</span>
+            </a>
+            <a href="#" class="nav-item" data-page="secretfinder">
+                <i class="fas fa-key"></i>
+                <span>SecretFinder</span>
+            </a>
+            <a href="#" class="nav-item" data-page="linkfinder">
+                <i class="fas fa-link"></i>
+                <span>LinkFinder</span>
             </a>
         </div>
         
@@ -816,6 +864,241 @@
                     <div class="card tool-result-card" id="nucleiResult" style="display:none">
                         <div class="card-header"><h2><i class="fas fa-radiation-alt"></i> Nuclei Findings</h2></div>
                         <div class="card-body" id="nucleiResultContent"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- AMASS PAGE -->
+            <div class="page" id="page-amass">
+                <div class="tool-layout">
+                    <div class="card">
+                        <div class="card-header"><h2><i class="fas fa-layer-group"></i> Amass – Subdomain Enumeration</h2></div>
+                        <div class="card-body">
+                            <div class="form-group">
+                                <label class="form-label">Target Domain</label>
+                                <input type="text" id="amassTarget" placeholder="example.com" autocomplete="off">
+                            </div>
+                            <div class="info-note"><i class="fas fa-info-circle"></i> OWASP Amass passive enumeration mode (~90s)</div>
+                            <button class="btn btn-primary btn-full" onclick="runTool('amass')"><i class="fas fa-play"></i> Run Amass</button>
+                        </div>
+                    </div>
+                    <div class="card tool-result-card" id="amassResult" style="display:none">
+                        <div class="card-header"><h2><i class="fas fa-list"></i> Amass Results</h2></div>
+                        <div class="card-body" id="amassResultContent"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ASSETFINDER PAGE -->
+            <div class="page" id="page-assetfinder">
+                <div class="tool-layout">
+                    <div class="card">
+                        <div class="card-header"><h2><i class="fas fa-sitemap"></i> Assetfinder – Asset Discovery</h2></div>
+                        <div class="card-body">
+                            <div class="form-group">
+                                <label class="form-label">Target Domain</label>
+                                <input type="text" id="assetfinderTarget" placeholder="example.com" autocomplete="off">
+                            </div>
+                            <div class="info-note"><i class="fas fa-info-circle"></i> Fast subdomain/asset discovery via public sources</div>
+                            <button class="btn btn-primary btn-full" onclick="runTool('assetfinder')"><i class="fas fa-play"></i> Run Assetfinder</button>
+                        </div>
+                    </div>
+                    <div class="card tool-result-card" id="assetfinderResult" style="display:none">
+                        <div class="card-header"><h2><i class="fas fa-list"></i> Assetfinder Results</h2></div>
+                        <div class="card-body" id="assetfinderResultContent"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- HTTPX PAGE -->
+            <div class="page" id="page-httpx">
+                <div class="tool-layout">
+                    <div class="card">
+                        <div class="card-header"><h2><i class="fas fa-wifi"></i> HTTPX – HTTP Probe</h2></div>
+                        <div class="card-body">
+                            <div class="form-group">
+                                <label class="form-label">Target</label>
+                                <input type="text" id="httpxTarget" placeholder="example.com or https://example.com" autocomplete="off">
+                            </div>
+                            <div class="info-note"><i class="fas fa-info-circle"></i> Fast HTTP toolkit: probes live hosts, detects tech, titles, status codes</div>
+                            <button class="btn btn-primary btn-full" onclick="runTool('httpx')"><i class="fas fa-play"></i> Run HTTPX</button>
+                        </div>
+                    </div>
+                    <div class="card tool-result-card" id="httpxResult" style="display:none">
+                        <div class="card-header"><h2><i class="fas fa-check-circle"></i> HTTPX Results</h2></div>
+                        <div class="card-body" id="httpxResultContent"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- DNSX PAGE -->
+            <div class="page" id="page-dnsx">
+                <div class="tool-layout">
+                    <div class="card">
+                        <div class="card-header"><h2><i class="fas fa-network-wired"></i> DNSX – DNS Resolver</h2></div>
+                        <div class="card-body">
+                            <div class="form-group">
+                                <label class="form-label">Target Domain</label>
+                                <input type="text" id="dnsxTarget" placeholder="example.com" autocomplete="off">
+                            </div>
+                            <div class="info-note"><i class="fas fa-info-circle"></i> Fast DNS resolution: A, AAAA, CNAME, MX, NS, TXT, SOA records</div>
+                            <button class="btn btn-primary btn-full" onclick="runTool('dnsx')"><i class="fas fa-play"></i> Run DNSX</button>
+                        </div>
+                    </div>
+                    <div class="card tool-result-card" id="dnsxResult" style="display:none">
+                        <div class="card-header"><h2><i class="fas fa-list-alt"></i> DNSX Records</h2></div>
+                        <div class="card-body" id="dnsxResultContent"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- GAU PAGE -->
+            <div class="page" id="page-gau">
+                <div class="tool-layout">
+                    <div class="card">
+                        <div class="card-header"><h2><i class="fas fa-history"></i> GAU – Get All URLs</h2></div>
+                        <div class="card-body">
+                            <div class="form-group">
+                                <label class="form-label">Target Domain</label>
+                                <input type="text" id="gauTarget" placeholder="example.com" autocomplete="off">
+                            </div>
+                            <div class="info-note"><i class="fas fa-info-circle"></i> Fetches known URLs from Wayback Machine, OTX & URLScan</div>
+                            <button class="btn btn-primary btn-full" onclick="runTool('gau')"><i class="fas fa-play"></i> Fetch URLs</button>
+                        </div>
+                    </div>
+                    <div class="card tool-result-card" id="gauResult" style="display:none">
+                        <div class="card-header"><h2><i class="fas fa-list"></i> GAU Results</h2></div>
+                        <div class="card-body" id="gauResultContent"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- WAYBACKURLS PAGE -->
+            <div class="page" id="page-waybackurls">
+                <div class="tool-layout">
+                    <div class="card">
+                        <div class="card-header"><h2><i class="fas fa-archive"></i> Wayback URLs</h2></div>
+                        <div class="card-body">
+                            <div class="form-group">
+                                <label class="form-label">Target Domain</label>
+                                <input type="text" id="waybackurlsTarget" placeholder="example.com" autocomplete="off">
+                            </div>
+                            <div class="info-note"><i class="fas fa-info-circle"></i> Fetches archived URLs from the Wayback Machine</div>
+                            <button class="btn btn-primary btn-full" onclick="runTool('waybackurls')"><i class="fas fa-play"></i> Fetch Wayback URLs</button>
+                        </div>
+                    </div>
+                    <div class="card tool-result-card" id="waybackurlsResult" style="display:none">
+                        <div class="card-header"><h2><i class="fas fa-clock"></i> Wayback Results</h2></div>
+                        <div class="card-body" id="waybackurlsResultContent"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- KATANA PAGE -->
+            <div class="page" id="page-katana">
+                <div class="tool-layout">
+                    <div class="card">
+                        <div class="card-header"><h2><i class="fas fa-spider"></i> Katana – Web Crawler</h2></div>
+                        <div class="card-body">
+                            <div class="form-group">
+                                <label class="form-label">Target URL</label>
+                                <input type="text" id="katanaTarget" placeholder="https://example.com" autocomplete="off">
+                            </div>
+                            <div class="info-note"><i class="fas fa-info-circle"></i> Next-gen crawler: depth 2 crawl, JS parsing, endpoint discovery (~30s)</div>
+                            <button class="btn btn-primary btn-full" onclick="runTool('katana')"><i class="fas fa-play"></i> Start Crawling</button>
+                        </div>
+                    </div>
+                    <div class="card tool-result-card" id="katanaResult" style="display:none">
+                        <div class="card-header"><h2><i class="fas fa-map"></i> Katana Endpoints</h2></div>
+                        <div class="card-body" id="katanaResultContent"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- DALFOX PAGE -->
+            <div class="page" id="page-dalfox">
+                <div class="tool-layout">
+                    <div class="card">
+                        <div class="card-header"><h2><i class="fas fa-terminal"></i> Dalfox – XSS Scanner</h2></div>
+                        <div class="card-body">
+                            <div class="form-group">
+                                <label class="form-label">Target URL (with params)</label>
+                                <input type="text" id="dalfoxTarget" placeholder="https://example.com/?q=test" autocomplete="off">
+                            </div>
+                            <div class="info-note"><i class="fas fa-info-circle"></i> Advanced XSS scanner with WAF evasion and DOM analysis (~90s)</div>
+                            <button class="btn btn-primary btn-full" onclick="runTool('dalfox')"><i class="fas fa-play"></i> Run Dalfox</button>
+                        </div>
+                    </div>
+                    <div class="card tool-result-card" id="dalfoxResult" style="display:none">
+                        <div class="card-header"><h2><i class="fas fa-exclamation-triangle"></i> Dalfox Findings</h2></div>
+                        <div class="card-body" id="dalfoxResultContent"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SQLMAP PAGE -->
+            <div class="page" id="page-sqlmap">
+                <div class="tool-layout">
+                    <div class="card">
+                        <div class="card-header"><h2><i class="fas fa-database"></i> SQLMap – SQL Injection</h2></div>
+                        <div class="card-body">
+                            <div class="form-group">
+                                <label class="form-label">Target URL (with GET params)</label>
+                                <input type="text" id="sqlmapTarget" placeholder="https://example.com/?id=1" autocomplete="off">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Parameter (optional)</label>
+                                <input type="text" id="sqlmapParam" placeholder="id" autocomplete="off">
+                            </div>
+                            <div class="info-note"><i class="fas fa-info-circle"></i> SQLMap level 1, risk 1 — safe detection scan (~2min)</div>
+                            <button class="btn btn-primary btn-full" onclick="runSqlmap()"><i class="fas fa-play"></i> Run SQLMap</button>
+                        </div>
+                    </div>
+                    <div class="card tool-result-card" id="sqlmapResult" style="display:none">
+                        <div class="card-header"><h2><i class="fas fa-exclamation-triangle"></i> SQLMap Findings</h2></div>
+                        <div class="card-body" id="sqlmapResultContent"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SECRETFINDER PAGE -->
+            <div class="page" id="page-secretfinder">
+                <div class="tool-layout">
+                    <div class="card">
+                        <div class="card-header"><h2><i class="fas fa-key"></i> SecretFinder – API Key Detector</h2></div>
+                        <div class="card-body">
+                            <div class="form-group">
+                                <label class="form-label">Target URL</label>
+                                <input type="text" id="secretfinderTarget" placeholder="https://example.com" autocomplete="off">
+                            </div>
+                            <div class="info-note"><i class="fas fa-info-circle"></i> Scans JS files for API keys, tokens, and secrets (~60s)</div>
+                            <button class="btn btn-primary btn-full" onclick="runTool('secretfinder')"><i class="fas fa-play"></i> Scan Secrets</button>
+                        </div>
+                    </div>
+                    <div class="card tool-result-card" id="secretfinderResult" style="display:none">
+                        <div class="card-header"><h2><i class="fas fa-exclamation-triangle"></i> Secrets Found</h2></div>
+                        <div class="card-body" id="secretfinderResultContent"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- LINKFINDER PAGE -->
+            <div class="page" id="page-linkfinder">
+                <div class="tool-layout">
+                    <div class="card">
+                        <div class="card-header"><h2><i class="fas fa-link"></i> LinkFinder – Endpoint Discovery</h2></div>
+                        <div class="card-body">
+                            <div class="form-group">
+                                <label class="form-label">Target URL</label>
+                                <input type="text" id="linkfinderTarget" placeholder="https://example.com" autocomplete="off">
+                            </div>
+                            <div class="info-note"><i class="fas fa-info-circle"></i> Discovers hidden endpoints and paths from JavaScript files</div>
+                            <button class="btn btn-primary btn-full" onclick="runTool('linkfinder')"><i class="fas fa-play"></i> Find Links</button>
+                        </div>
+                    </div>
+                    <div class="card tool-result-card" id="linkfinderResult" style="display:none">
+                        <div class="card-header"><h2><i class="fas fa-map-signs"></i> Discovered Links</h2></div>
+                        <div class="card-body" id="linkfinderResultContent"></div>
                     </div>
                 </div>
             </div>

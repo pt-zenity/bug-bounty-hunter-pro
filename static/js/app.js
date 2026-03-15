@@ -124,27 +124,49 @@ function renderToolStatus(tools) {
     if (!container) return;
     
     const toolIcons = {
-        nmap:      'fas fa-network-wired',
-        subfinder: 'fas fa-search',
-        nuclei:    'fas fa-radiation',
-        ffuf:      'fas fa-stream',
-        curl:      'fas fa-terminal',
-        dig:       'fas fa-globe',
-        whois:     'fas fa-id-card',
-        whatweb:   'fas fa-fingerprint',
-        nikto:     'fas fa-bug'
+        nmap:              'fas fa-network-wired',
+        subfinder:         'fas fa-search',
+        nuclei:            'fas fa-radiation',
+        ffuf:              'fas fa-stream',
+        curl:              'fas fa-terminal',
+        dig:               'fas fa-globe',
+        whois:             'fas fa-id-card',
+        whatweb:           'fas fa-fingerprint',
+        nikto:             'fas fa-bug',
+        httpx:             'fas fa-wifi',
+        dnsx:              'fas fa-network-wired',
+        katana:            'fas fa-spider',
+        gau:               'fas fa-history',
+        anew:              'fas fa-filter',
+        qsreplace:         'fas fa-edit',
+        assetfinder:       'fas fa-sitemap',
+        gf:                'fas fa-grep',
+        waybackurls:       'fas fa-archive',
+        dalfox:            'fas fa-terminal',
+        sqlmap:            'fas fa-database',
+        amass:             'fas fa-layer-group',
+        'interactsh-client': 'fas fa-satellite',
+        xsstrike:          'fas fa-crosshairs',
+        secretfinder:      'fas fa-key',
+        linkfinder:        'fas fa-link'
     };
     
-    container.innerHTML = Object.entries(tools).map(([tool, available]) => `
-        <div class="tool-status-item">
-            <i class="${toolIcons[tool] || 'fas fa-wrench'} ${available ? 'tool-avail' : 'tool-missing'}"></i>
-            <span class="tool-name">${tool}</span>
-            <span class="${available ? 'tool-avail' : 'tool-missing'}">
-                <i class="fas fa-${available ? 'check-circle' : 'times-circle'}"></i>
-                ${available ? 'Available' : 'Missing'}
-            </span>
+    const available = Object.values(tools).filter(Boolean).length;
+    const total = Object.keys(tools).length;
+    container.innerHTML = `
+        <div style="margin-bottom:10px;font-size:12px;color:var(--accent)">
+            <i class="fas fa-check-circle"></i> ${available}/${total} tools installed
         </div>
-    `).join('');
+        ${Object.entries(tools).map(([tool, avail]) => `
+        <div class="tool-status-item">
+            <i class="${toolIcons[tool] || 'fas fa-wrench'} ${avail ? 'tool-avail' : 'tool-missing'}"></i>
+            <span class="tool-name">${tool}</span>
+            <span class="${avail ? 'tool-avail' : 'tool-missing'}">
+                <i class="fas fa-${avail ? 'check-circle' : 'times-circle'}"></i>
+                ${avail ? 'OK' : 'Missing'}
+            </span>
+        </div>`).join('')}
+    `;
 }
 
 // ─── Dashboard Scan ───────────────────────────────────────────────────────────
@@ -572,6 +594,9 @@ function closeDetail() {
 async function runTool(tool) {
     // Nuclei has a severity dropdown — delegate
     if (tool === 'nuclei') { runNuclei(); return; }
+    // SQLMap has extra param field — delegate
+    if (tool === 'sqlmap') { runSqlmap(); return; }
+
     const targetEl = document.getElementById(`${tool}Target`);
     const resultCard = document.getElementById(`${tool}Result`);
     const resultContent = document.getElementById(`${tool}ResultContent`);
@@ -616,6 +641,16 @@ async function runTool(tool) {
             case 'ffuf': renderFfufResults(resultContent, data); break;
             case 'nuclei': renderNucleiResults(resultContent, data); break;
             case 'whatweb': renderWhatwebResults(resultContent, data); break;
+            case 'amass': renderSubfinderResults(resultContent, data); break;
+            case 'assetfinder': renderSubfinderResults(resultContent, data); break;
+            case 'httpx': renderHttpxResults(resultContent, data); break;
+            case 'dnsx': renderDnsxResults(resultContent, data); break;
+            case 'gau': renderUrlResults(resultContent, data, 'GAU URLs'); break;
+            case 'waybackurls': renderUrlResults(resultContent, data, 'Wayback URLs'); break;
+            case 'katana': renderKatanaResults(resultContent, data); break;
+            case 'dalfox': renderVulnFindingsResults(resultContent, data, 'Dalfox XSS'); break;
+            case 'secretfinder': renderVulnFindingsResults(resultContent, data, 'Secrets'); break;
+            case 'linkfinder': renderLinkfinderResults(resultContent, data); break;
         }
         
     } catch (err) {
@@ -651,6 +686,38 @@ async function runNuclei() {
     } catch(err) {
         hideLoading();
         showToast('Nuclei error: ' + err.message, 'error');
+        resultCard.style.display = 'block';
+        resultContent.innerHTML = `<div class="empty-state"><p>Error: ${escapeHtml(err.message)}</p></div>`;
+    }
+}
+
+async function runSqlmap() {
+    const targetEl  = document.getElementById('sqlmapTarget');
+    const paramEl   = document.getElementById('sqlmapParam');
+    const resultCard    = document.getElementById('sqlmapResult');
+    const resultContent = document.getElementById('sqlmapResultContent');
+    if (!targetEl) return;
+    const target = targetEl.value.trim();
+    const param  = paramEl ? paramEl.value.trim() : '';
+    if (!target) { showToast('Please enter a target URL', 'error'); return; }
+
+    showLoading('Running SQLMap scan… this may take up to 2 minutes');
+    resultCard.style.display = 'none';
+    try {
+        const body = { target };
+        if (param) body.param = param;
+        const resp = await fetch(`${API_BASE}/tools/sqlmap`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        const data = await resp.json();
+        hideLoading();
+        resultCard.style.display = 'block';
+        renderVulnFindingsResults(resultContent, data, 'SQLMap');
+    } catch(err) {
+        hideLoading();
+        showToast('SQLMap error: ' + err.message, 'error');
         resultCard.style.display = 'block';
         resultContent.innerHTML = `<div class="empty-state"><p>Error: ${escapeHtml(err.message)}</p></div>`;
     }
@@ -1279,6 +1346,108 @@ function renderWhatwebResults(container, data) {
             <summary style="font-size:11px;color:var(--text-muted);cursor:pointer">Raw WhatWeb output</summary>
             <pre style="font-size:10px;background:rgba(255,255,255,0.03);padding:10px;border-radius:6px;overflow-x:auto;margin-top:8px;white-space:pre-wrap">${escapeHtml((data.raw||'').slice(0,2000))}</pre>
         </details>
+    `;
+}
+
+function renderHttpxResults(container, data) {
+    const results = data.results || [];
+    if (results.length === 0) {
+        container.innerHTML = `<div class="empty-state"><i class="fas fa-wifi fa-2x"></i><p>No HTTP results from HTTPX</p><small>${escapeHtml(data.raw||'')}</small></div>`;
+        return;
+    }
+    container.innerHTML = `
+        <div style="margin-bottom:12px;font-size:12px;color:var(--text-muted)">HTTPX probed <strong style="color:var(--accent)">${results.length}</strong> host(s)</div>
+        ${results.map(r => `
+        <div style="background:rgba(255,255,255,0.04);border-radius:8px;padding:12px;margin-bottom:8px">
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                <span style="font-family:monospace;font-size:13px;font-weight:600;color:var(--accent)">${escapeHtml(r.url||'')}</span>
+                <span style="background:rgba(16,185,129,0.1);color:#10b981;padding:2px 8px;border-radius:4px;font-size:11px">${r.status_code||'?'}</span>
+                ${r.webserver ? `<span style="background:rgba(99,102,241,0.1);color:#818cf8;padding:2px 8px;border-radius:4px;font-size:11px">${escapeHtml(r.webserver)}</span>` : ''}
+            </div>
+            ${r.title ? `<div style="font-size:12px;color:var(--text-secondary);margin-top:6px">📄 ${escapeHtml(r.title)}</div>` : ''}
+            ${r.tech && r.tech.length > 0 ? `<div style="font-size:11px;color:var(--text-muted);margin-top:4px">Tech: ${r.tech.map(t=>escapeHtml(t)).join(', ')}</div>` : ''}
+        </div>`).join('')}
+    `;
+}
+
+function renderDnsxResults(container, data) {
+    const records = data.records || [];
+    if (records.length === 0) {
+        container.innerHTML = `<div class="empty-state"><i class="fas fa-network-wired fa-2x"></i><p>No DNS records found</p><small>${escapeHtml(data.raw||'')}</small></div>`;
+        return;
+    }
+    const typeColors = { A:'#10b981', AAAA:'#6366f1', CNAME:'#f59e0b', MX:'#ec4899', NS:'#8b5cf6', TXT:'#14b8a6', SOA:'#f97316', DNS:'#94a3b8' };
+    container.innerHTML = `
+        <div style="margin-bottom:12px;font-size:12px;color:var(--text-muted)">DNSX resolved <strong style="color:var(--accent)">${records.length}</strong> record(s) for <strong>${escapeHtml(data.host||'')}</strong></div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+        ${records.map(r => `
+            <div style="display:flex;align-items:flex-start;gap:10px;background:rgba(255,255,255,0.03);padding:8px 12px;border-radius:6px">
+                <span style="background:${typeColors[r.type]||'#64748b'}22;color:${typeColors[r.type]||'#94a3b8'};padding:2px 8px;border-radius:4px;font-size:11px;font-family:monospace;min-width:50px;text-align:center">${escapeHtml(r.type||'')}</span>
+                <span style="font-family:monospace;font-size:12px;color:var(--text-primary);word-break:break-all">${escapeHtml(r.value||'')}</span>
+            </div>`).join('')}
+        </div>
+    `;
+}
+
+function renderUrlResults(container, data, label) {
+    const urls = data.urls || [];
+    const interesting = data.interesting || [];
+    if (urls.length === 0) {
+        container.innerHTML = `<div class="empty-state"><i class="fas fa-history fa-2x"></i><p>No URLs found</p></div>`;
+        return;
+    }
+    container.innerHTML = `
+        <div style="margin-bottom:12px;font-size:12px;color:var(--text-muted)">
+            ${label}: <strong style="color:var(--accent)">${urls.length}</strong> URL(s) — 
+            <strong style="color:#f59e0b">${interesting.length}</strong> interesting
+        </div>
+        ${interesting.length > 0 ? `
+        <div style="margin-bottom:12px">
+            <div style="font-size:12px;font-weight:600;color:#f59e0b;margin-bottom:8px">⭐ Interesting URLs</div>
+            ${interesting.slice(0,50).map(u => `<div style="font-family:monospace;font-size:11px;color:#f59e0b;padding:3px 8px;border-left:2px solid #f59e0b;margin-bottom:3px;word-break:break-all">${escapeHtml(u)}</div>`).join('')}
+        </div>` : ''}
+        <details>
+            <summary style="font-size:11px;color:var(--text-muted);cursor:pointer">All URLs (${urls.length})</summary>
+            <pre style="font-size:10px;background:rgba(255,255,255,0.03);padding:10px;border-radius:6px;overflow-x:auto;margin-top:8px;max-height:400px;overflow-y:auto">${escapeHtml(urls.slice(0,200).join('\n'))}</pre>
+        </details>
+    `;
+}
+
+function renderKatanaResults(container, data) {
+    const endpoints = data.endpoints || [];
+    if (endpoints.length === 0) {
+        container.innerHTML = `<div class="empty-state"><i class="fas fa-spider fa-2x"></i><p>No endpoints discovered by Katana</p><small>${escapeHtml((data.raw||'').slice(0,200))}</small></div>`;
+        return;
+    }
+    const bySev = { HIGH:[], MEDIUM:[], INFO:[] };
+    endpoints.forEach(e => { const s = e.severity||'INFO'; (bySev[s] || (bySev[s]=[])).push(e); });
+    const sevColor = { HIGH:'#ef4444', MEDIUM:'#f59e0b', INFO:'#94a3b8' };
+    container.innerHTML = `
+        <div style="margin-bottom:12px;font-size:12px;color:var(--text-muted)">Katana discovered <strong style="color:var(--accent)">${endpoints.length}</strong> endpoint(s)</div>
+        ${['HIGH','MEDIUM','INFO'].map(sev => bySev[sev] && bySev[sev].length > 0 ? `
+        <div style="margin-bottom:12px">
+            <div style="font-size:12px;font-weight:600;color:${sevColor[sev]};margin-bottom:6px">${sev} (${bySev[sev].length})</div>
+            ${bySev[sev].slice(0,30).map(e => `<div style="font-family:monospace;font-size:11px;padding:3px 8px;border-left:2px solid ${sevColor[sev]};margin-bottom:3px;word-break:break-all;color:var(--text-secondary)">${escapeHtml(e.url||e.description||'')}</div>`).join('')}
+        </div>` : '').join('')}
+    `;
+}
+
+function renderLinkfinderResults(container, data) {
+    const endpoints = data.endpoints || [];
+    if (endpoints.length === 0) {
+        container.innerHTML = `<div class="empty-state"><i class="fas fa-link fa-2x"></i><p>No links/endpoints discovered</p><small>${escapeHtml((data.raw||'').slice(0,200))}</small></div>`;
+        return;
+    }
+    const sevColor = { HIGH:'#ef4444', MEDIUM:'#f59e0b', INFO:'#94a3b8' };
+    container.innerHTML = `
+        <div style="margin-bottom:12px;font-size:12px;color:var(--text-muted)">LinkFinder found <strong style="color:var(--accent)">${endpoints.length}</strong> endpoint(s)</div>
+        <div style="display:flex;flex-direction:column;gap:4px">
+        ${endpoints.map(e => `
+            <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:rgba(255,255,255,0.03);border-radius:6px">
+                <span style="background:${sevColor[e.severity||'INFO']}22;color:${sevColor[e.severity||'INFO']};padding:1px 6px;border-radius:3px;font-size:10px;min-width:40px;text-align:center">${escapeHtml(e.severity||'INFO')}</span>
+                <span style="font-family:monospace;font-size:11px;color:var(--text-primary);word-break:break-all">${escapeHtml(e.endpoint||'')}</span>
+            </div>`).join('')}
+        </div>
     `;
 }
 

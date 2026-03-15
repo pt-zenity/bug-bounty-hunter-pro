@@ -96,9 +96,13 @@ def resolve_target(target):
 def _run_cmd(cmd, timeout=30):
     """Run a subprocess command safely, return (stdout, stderr, returncode)."""
     try:
+        # Ensure Go binaries and /usr/local/bin are in PATH for all tools
+        env = dict(os.environ)
+        env['HOME'] = '/home/user'
+        env['PATH'] = '/usr/local/bin:/usr/bin:/bin:/home/user/go/bin:' + env.get('PATH', '')
         result = subprocess.run(
             cmd, capture_output=True, text=True,
-            timeout=timeout, env=dict(os.environ, HOME='/home/user')
+            timeout=timeout, env=env
         )
         return result.stdout, result.stderr, result.returncode
     except subprocess.TimeoutExpired:
@@ -410,6 +414,311 @@ def run_nuclei(target, severity='medium,high,critical', templates='default-login
             pass
     return {"target": url, "findings": findings, "count": len(findings),
             "raw": raw[:3000]}
+
+# ─── New Tool Wrappers ────────────────────────────────────────────────────────
+
+def run_httpx(target):
+    """Real ProjectDiscovery httpx HTTP probe."""
+    url = base_url(target)
+    # PD httpx uses stdin for input; use -u flag for URL
+    out, err, rc = _run_cmd([
+        '/home/user/go/bin/httpx',
+        '-u', url,
+        '-title', '-tech-detect', '-status-code', '-content-length',
+        '-web-server', '-no-color', '-silent', '-follow-redirects',
+        '-timeout', '10', '-json'
+    ], timeout=30)
+    results = []
+    for line in (out or '').strip().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            item = json.loads(line)
+            results.append({
+                "url": item.get('url', ''),
+                "status_code": item.get('status_code', 0),
+                "title": item.get('title', ''),
+                "webserver": item.get('webserver', ''),
+                "tech": item.get('tech', []),
+                "content_length": item.get('content_length', 0),
+                "severity": "INFO"
+            })
+        except Exception:
+            pass
+    if not results:
+        # fallback: simple probe
+        out2, _, _ = _run_cmd([
+            '/home/user/go/bin/httpx', '-u', url, '-no-color', '-silent'
+        ], timeout=20)
+        for line in (out2 or '').strip().splitlines():
+            if line.strip():
+                results.append({"url": line.strip(), "severity": "INFO"})
+    return {"host": clean_target(target), "results": results, "count": len(results), "raw": ((out or '')+(err or ''))[:2000]}
+
+def run_dnsx(target):
+    """Real dnsx DNS resolution - reads host from stdin."""
+    host = clean_target(target)
+    # dnsx reads from stdin when using -l flag or pipe, no -d without -w
+    # Use echo piped to dnsx
+    import subprocess as sp
+    env = dict(os.environ)
+    env['HOME'] = '/home/user'
+    env['PATH'] = '/usr/local/bin:/usr/bin:/bin:/home/user/go/bin:' + env.get('PATH', '')
+    try:
+        proc = sp.run(
+            f'echo "{host}" | /home/user/go/bin/dnsx -a -aaaa -cname -mx -ns -txt -resp -no-color -silent',
+            shell=True, capture_output=True, text=True, timeout=25, env=env
+        )
+        out = proc.stdout
+        err = proc.stderr
+    except Exception as e:
+        out, err = '', str(e)
+
+    records = []
+    type_map = {'[A]': 'A', '[AAAA]': 'AAAA', '[CNAME]': 'CNAME', '[MX]': 'MX',
+                '[NS]': 'NS', '[TXT]': 'TXT', '[SOA]': 'SOA'}
+    for line in (out or '').strip().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        # Format: "example.com [A] [104.18.26.120]"
+        rtype = 'DNS'
+        val = line
+        for tag, t in type_map.items():
+            if tag in line:
+                rtype = t
+                # Extract value from brackets after type
+                parts = line.split(tag, 1)
+                if len(parts) > 1:
+                    val = parts[1].strip().strip('[]').strip()
+                break
+        if val:
+            records.append({"type": rtype, "value": val})
+
+    # Fallback: if nothing, use python dns
+    if not records:
+        try:
+            import dns.resolver
+            for rtype in ['A', 'AAAA', 'MX', 'NS', 'TXT']:
+                try:
+                    for r in dns.resolver.resolve(host, rtype, lifetime=5):
+                        records.append({"type": rtype, "value": str(r)})
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    return {"host": host, "records": records, "count": len(records), "raw": (out or '')[:2000]}
+
+def run_katana(target):
+    """Real katana web crawler for endpoint discovery."""
+    url = base_url(target)
+    out, err, rc = _run_cmd([
+        'katana', '-u', url,
+        '-depth', '2', '-silent', '-no-color',
+        '-timeout', '10', '-crawl-duration', '30',
+        '-jc',  # JS crawling
+        '-fx',  # filter extensions (images, css, fonts)
+    ], timeout=60)
+    endpoints = []
+    seen = set()
+    for line in (out or '').strip().splitlines():
+        line = line.strip()
+        if line and line.startswith('http') and line not in seen:
+            seen.add(line)
+            # Classify interesting endpoints
+            sev = "INFO"
+            ll = line.lower()
+            if any(x in ll for x in ['admin', 'login', 'auth', 'config', '.env', 'backup', 'api/key']):
+                sev = "HIGH"
+            elif any(x in ll for x in ['api', 'upload', 'graphql', 'swagger', 'token']):
+                sev = "MEDIUM"
+            endpoints.append({
+                "url": line,
+                "severity": sev,
+                "description": f"Discovered endpoint: {line}"
+            })
+    return {"target": url, "endpoints": endpoints, "count": len(endpoints), "raw": (out or '')[:3000]}
+
+def run_gau(target):
+    """GetAllURLs - fetch known URLs from Wayback/OTX/URLScan."""
+    host = clean_target(target)
+    out, err, rc = _run_cmd([
+        'gau', '--threads', '5',
+        '--timeout', '30', '--mc', '200,301,302,403',
+        '--fp',  # filter patterns
+        host
+    ], timeout=60)
+    urls = []
+    for line in (out or '').strip().splitlines():
+        line = line.strip()
+        if line.startswith('http'):
+            urls.append(line)
+    # Deduplicate and cap
+    urls = sorted(set(urls))[:500]
+    # Find interesting URLs
+    interesting = []
+    for u in urls:
+        ll = u.lower()
+        if any(x in ll for x in ['.php?', '?id=', '?page=', 'redirect=', 'url=', 'path=',
+                                   'admin', 'login', 'token', '.env', 'backup', 'config']):
+            interesting.append(u)
+    return {"host": host, "urls": urls, "count": len(urls),
+            "interesting": interesting[:100], "interesting_count": len(interesting),
+            "raw": (out or '')[:3000]}
+
+def run_dalfox(target):
+    """Real dalfox XSS scanner."""
+    url = base_url(target)
+    out, err, rc = _run_cmd([
+        'dalfox', 'url', url,
+        '--no-color', '--skip-bav', '--skip-mining-dom',
+        '--timeout', '10',
+        '--waf-evasion',
+        '-o', '/dev/null'
+    ], timeout=90)
+    raw = (out or '') + (err or '')
+    findings = []
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        lc = line.lower()
+        if '[poc]' in lc or '[vuln]' in lc or 'reflected xss' in lc:
+            findings.append({
+                "type": "XSS",
+                "severity": "HIGH",
+                "description": line,
+                "source": "dalfox"
+            })
+        elif '[info]' in lc or '[bav]' in lc:
+            findings.append({
+                "type": "Info",
+                "severity": "INFO",
+                "description": line,
+                "source": "dalfox"
+            })
+    return {"target": url, "findings": findings, "count": len(findings), "raw": raw[:3000]}
+
+def run_sqlmap(target, param=None):
+    """Real sqlmap SQL injection scanner (safe level 1, no actual exploitation)."""
+    url = base_url(target)
+    # Build a test URL with common params if none provided
+    test_url = url
+    if '?' not in url:
+        test_url = f"{url}?id=1"
+    cmd = [
+        '/usr/local/bin/sqlmap', '-u', test_url,
+        '--batch', '--level=1', '--risk=1',
+        '--threads=3', '--timeout=10',
+        '--no-cast', '--technique=BEUSTQ',
+        '--output-dir=/tmp/sqlmap_out',
+        '--random-agent',
+    ]
+    if param:
+        cmd.extend(['-p', param])
+    out, err, rc = _run_cmd(cmd, timeout=120)
+    raw = (out or '') + (err or '')
+    findings = []
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        lc = line.lower()
+        if 'parameter' in lc and 'injectable' in lc:
+            findings.append({"type": "SQL Injection", "severity": "CRITICAL", "description": line, "source": "sqlmap"})
+        elif 'payload:' in lc or '[payload]' in lc:
+            findings.append({"type": "SQLi Payload", "severity": "HIGH", "description": line, "source": "sqlmap"})
+        elif 'warning:' in lc and any(x in lc for x in ['inject', 'sql', 'db']):
+            findings.append({"type": "SQLi Warning", "severity": "MEDIUM", "description": line, "source": "sqlmap"})
+    return {"target": test_url, "findings": findings, "count": len(findings), "raw": raw[:3000]}
+
+def run_amass(target):
+    """Real amass subdomain enumeration (passive mode, 60s)."""
+    host = clean_target(target)
+    out, err, rc = _run_cmd([
+        'amass', 'enum', '-passive', '-d', host,
+        '-timeout', '1',  # minutes
+        '-norecursive'
+    ], timeout=90)
+    subdomains = []
+    for line in (out or '').strip().splitlines():
+        line = line.strip()
+        if line and host in line and not line.startswith('['):
+            # amass output: "sub.example.com"
+            subdomains.append(line.split()[-1] if ' ' in line else line)
+    subdomains = sorted(set(subdomains))
+    findings = [{"subdomain": s, "type": "Subdomain", "severity": "INFO",
+                 "description": f"Amass discovered: {s}"} for s in subdomains]
+    return {"host": host, "subdomains": subdomains, "count": len(subdomains),
+            "findings": findings, "raw": (out or '')[:2000]}
+
+def run_waybackurls(target):
+    """Fetch archived URLs from Wayback Machine."""
+    host = clean_target(target)
+    out, err, rc = _run_cmd(['waybackurls', host], timeout=45)
+    urls = sorted(set(l.strip() for l in (out or '').splitlines() if l.strip().startswith('http')))[:300]
+    interesting = [u for u in urls if any(x in u.lower() for x in
+                   ['?', 'admin', 'login', 'token', '.env', 'backup', 'upload', 'api', 'config'])]
+    return {"host": host, "urls": urls, "count": len(urls),
+            "interesting": interesting[:100], "interesting_count": len(interesting),
+            "raw": (out or '')[:2000]}
+
+def run_secretfinder(target):
+    """Run SecretFinder to find API keys/secrets in JavaScript files."""
+    url = base_url(target)
+    out, err, rc = _run_cmd([
+        'python3', '/home/user/tools/SecretFinder/SecretFinder.py',
+        '-i', url, '-o', 'cli', '-e'  # -e: external JS files
+    ], timeout=60)
+    raw = (out or '') + (err or '')
+    findings = []
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        sev = "HIGH"
+        ll = line.lower()
+        if any(x in ll for x in ['api_key', 'secret_key', 'aws', 'private_key', 'token', 'password']):
+            sev = "CRITICAL"
+        elif any(x in ll for x in ['slack', 'discord', 'twilio', 'stripe', 'github']):
+            sev = "HIGH"
+        findings.append({"type": "Secret Found", "severity": sev, "description": line, "source": "secretfinder"})
+    return {"target": url, "findings": findings, "count": len(findings), "raw": raw[:3000]}
+
+def run_linkfinder(target):
+    """Run LinkFinder to discover hidden endpoints from JS files."""
+    url = base_url(target)
+    out, err, rc = _run_cmd([
+        'python3', '/home/user/tools/LinkFinder/linkfinder.py',
+        '-i', url, '-o', 'cli', '-d'  # -d: domain mode
+    ], timeout=60)
+    raw = (out or '') + (err or '')
+    endpoints = []
+    seen = set()
+    for line in raw.splitlines():
+        line = line.strip()
+        if line and ('/' in line or line.startswith('http')) and line not in seen:
+            seen.add(line)
+            sev = "INFO"
+            ll = line.lower()
+            if any(x in ll for x in ['admin', 'auth', 'token', 'api/key', 'secret']):
+                sev = "HIGH"
+            elif any(x in ll for x in ['api', 'endpoint', 'graphql', 'swagger']):
+                sev = "MEDIUM"
+            endpoints.append({"endpoint": line, "severity": sev, "source": "linkfinder"})
+    return {"target": url, "endpoints": endpoints, "count": len(endpoints), "raw": raw[:3000]}
+
+def run_assetfinder(target):
+    """Find domains and subdomains via assetfinder."""
+    host = clean_target(target)
+    out, err, rc = _run_cmd(['assetfinder', '--subs-only', host], timeout=45)
+    subs = sorted(set(l.strip() for l in (out or '').splitlines() if l.strip() and host in l.strip()))
+    findings = [{"subdomain": s, "type": "Subdomain", "severity": "INFO",
+                 "description": f"assetfinder: {s}"} for s in subs]
+    return {"host": host, "subdomains": subs, "count": len(subs),
+            "findings": findings, "raw": (out or '')[:2000]}
 
 # ─── HTTP Probe ───────────────────────────────────────────────────────────────
 
@@ -1176,19 +1485,51 @@ def run_full_scan(scan_id, raw_target, scan_type):
         if whois_res.get("expires"):
             add_log(scan_id, f"   → Expires: {whois_res['expires']}", "info")
 
-        # Subfinder (full scan only)
+        # dnsx — fast DNS resolution and record enumeration
+        try:
+            dnsx_res = run_dnsx(target)
+            if dnsx_res.get("count", 0) > 0:
+                add_log(scan_id, f"   → dnsx: {dnsx_res['count']} DNS record(s) resolved", "info")
+                active_scans[scan_id]["dnsx"] = dnsx_res.get("records", [])
+        except Exception:
+            pass
+
+        # Subfinder + assetfinder (full scan only)
         if scan_type == "full":
             add_log(scan_id, "   🔍 Running subfinder…", "info")
             sub_res = run_subfinder(target)
             active_scans[scan_id]["subdomains"] = sub_res.get("subdomains", [])
             if sub_res["count"] > 0:
-                add_log(scan_id, f"   ✅ {sub_res['count']} subdomain(s) found", "success")
+                add_log(scan_id, f"   ✅ subfinder: {sub_res['count']} subdomain(s) found", "success")
                 for s in sub_res["subdomains"][:5]:
                     add_log(scan_id, f"      → {s}", "info")
                 if sub_res["count"] > 5:
                     add_log(scan_id, f"      … and {sub_res['count']-5} more", "info")
             else:
-                add_log(scan_id, "   → No new subdomains discovered", "info")
+                add_log(scan_id, "   → No new subdomains via subfinder", "info")
+
+            # assetfinder as secondary source
+            try:
+                af_res = run_assetfinder(target)
+                existing_subs = set(active_scans[scan_id].get("subdomains", []))
+                new_subs = [s for s in af_res.get("subdomains", []) if s not in existing_subs]
+                if new_subs:
+                    add_log(scan_id, f"   ✅ assetfinder: {len(new_subs)} additional subdomain(s)", "success")
+                    active_scans[scan_id]["subdomains"] = sorted(existing_subs | set(af_res.get("subdomains", [])))
+            except Exception:
+                pass
+
+            # Wayback URLs for historical endpoint discovery
+            try:
+                add_log(scan_id, "   🕰️  Fetching Wayback/GAU URLs…", "info")
+                wb_res = run_waybackurls(target)
+                active_scans[scan_id]["wayback_urls"] = wb_res.get("urls", [])
+                if wb_res.get("count", 0) > 0:
+                    add_log(scan_id, f"   ✅ waybackurls: {wb_res['count']} historical URL(s), {wb_res.get('interesting_count',0)} interesting", "success")
+                    for u in wb_res.get("interesting", [])[:3]:
+                        add_log(scan_id, f"      → {u}", "info")
+            except Exception:
+                pass
 
         active_scans[scan_id]["progress"] = 15
 
@@ -1222,6 +1563,21 @@ def run_full_scan(scan_id, raw_target, scan_type):
                 techs.append(wt)
                 ww_names.add(wt["name"].lower())
 
+        # httpx probe for detailed HTTP info
+        try:
+            httpx_res = run_httpx(target)
+            active_scans[scan_id]["httpx"] = httpx_res.get("results", [])
+            if httpx_res.get("results"):
+                r = httpx_res["results"][0]
+                for t in r.get("tech", []):
+                    if t.lower() not in ww_names:
+                        techs.append({"name": t, "category": "tech", "source": "httpx"})
+                        ww_names.add(t.lower())
+                if r.get("webserver") and r["webserver"].lower() not in ww_names:
+                    techs.append({"name": r["webserver"], "category": "web-server", "source": "httpx"})
+        except Exception:
+            pass
+
         active_scans[scan_id]["technologies"] = techs
         if techs:
             add_log(scan_id, f"✅ {len(techs)} technology(ies) detected:", "success")
@@ -1231,6 +1587,21 @@ def run_full_scan(scan_id, raw_target, scan_type):
                 add_log(scan_id, f"   → {t['name']}{ver} [{t.get('category','tech')}] via {src}", "info")
         else:
             add_log(scan_id, "   → No technologies identified", "info")
+
+        # Katana crawl (full scan only)
+        if scan_type == "full":
+            try:
+                add_log(scan_id, "   🕷️  Katana web crawl…", "info")
+                katana_res = run_katana(target)
+                active_scans[scan_id]["crawled_endpoints"] = katana_res.get("endpoints", [])
+                if katana_res.get("count", 0) > 0:
+                    add_log(scan_id, f"   ✅ katana: {katana_res['count']} endpoint(s) discovered", "success")
+                    high_eps = [e for e in katana_res.get("endpoints", []) if e.get("severity") in ("HIGH","CRITICAL")]
+                    for ep in high_eps[:3]:
+                        add_log(scan_id, f"      🔴 {ep['url']}", "warning")
+            except Exception:
+                pass
+
         active_scans[scan_id]["progress"] = 35
 
         # ── Phase 4: Port Scan ────────────────────────────────────────────────
@@ -1397,6 +1768,56 @@ def run_full_scan(scan_id, raw_target, scan_type):
             else:
                 add_log(scan_id, "   ✅ Nuclei: No template matches", "success")
 
+            # dalfox XSS deep scan
+            active_scans[scan_id]["phase"] = "Dalfox XSS"
+            add_log(scan_id, "🦊 Phase 9e: Dalfox XSS Scanner", "info")
+            try:
+                dalfox_res = run_dalfox(target)
+                active_scans[scan_id]["dalfox"] = dalfox_res
+                if dalfox_res.get("findings"):
+                    add_log(scan_id, f"   🚨 Dalfox: {dalfox_res['count']} finding(s)!", "error")
+                    for f in dalfox_res["findings"]:
+                        if f["severity"] in ("HIGH","CRITICAL"):
+                            add_finding(scan_id, f)
+                        add_log(scan_id, f"   → [{f['severity']}] {f['description'][:100]}", "warning")
+                else:
+                    add_log(scan_id, "   ✅ Dalfox: No XSS found", "success")
+            except Exception as e:
+                add_log(scan_id, f"   ⚠️  Dalfox error: {str(e)[:50]}", "warning")
+
+            # sqlmap SQLi scan
+            active_scans[scan_id]["phase"] = "SQLMap Scan"
+            add_log(scan_id, "💉 Phase 9f: SQLMap Injection Scan", "info")
+            try:
+                sqli_res = run_sqlmap(target)
+                active_scans[scan_id]["sqlmap"] = sqli_res
+                if sqli_res.get("findings"):
+                    add_log(scan_id, f"   🚨 SQLMap: {sqli_res['count']} finding(s)!", "error")
+                    for f in sqli_res["findings"]:
+                        if f["severity"] in ("HIGH","CRITICAL"):
+                            add_finding(scan_id, f)
+                        add_log(scan_id, f"   → [{f['severity']}] {f['description'][:100]}", "warning")
+                else:
+                    add_log(scan_id, "   ✅ SQLMap: No injection points found", "success")
+            except Exception as e:
+                add_log(scan_id, f"   ⚠️  SQLMap error: {str(e)[:50]}", "warning")
+
+            # SecretFinder for exposed secrets in JS
+            active_scans[scan_id]["phase"] = "Secret Detection"
+            add_log(scan_id, "🔑 Phase 9g: SecretFinder - API Key Detection", "info")
+            try:
+                sf_res = run_secretfinder(target)
+                active_scans[scan_id]["secretfinder"] = sf_res
+                if sf_res.get("findings"):
+                    add_log(scan_id, f"   🚨 SecretFinder: {sf_res['count']} secret(s) exposed!", "error")
+                    for f in sf_res["findings"]:
+                        add_finding(scan_id, f)
+                        add_log(scan_id, f"   → [{f['severity']}] {f['description'][:100]}", "warning")
+                else:
+                    add_log(scan_id, "   ✅ SecretFinder: No exposed secrets", "success")
+            except Exception as e:
+                add_log(scan_id, f"   ⚠️  SecretFinder error: {str(e)[:50]}", "warning")
+
         active_scans[scan_id]["progress"] = 95
 
         # ── Phase 10: PoC Report ──────────────────────────────────────────────
@@ -1435,9 +1856,20 @@ def run_full_scan(scan_id, raw_target, scan_type):
 @app.route('/api/health')
 def api_health():
     tools = {}
-    for t in ['nmap','subfinder','nuclei','ffuf','curl','dig','whois','whatweb','nikto']:
-        tools[t] = subprocess.run(['which',t], capture_output=True).returncode == 0
-    return jsonify({"status":"ok","version":"2.0.0","tools":tools})
+    tool_list = [
+        'nmap','subfinder','nuclei','ffuf','curl','dig','whois','whatweb','nikto',
+        'httpx','dnsx','katana','gau','anew','qsreplace','assetfinder','gf',
+        'waybackurls','dalfox','sqlmap','amass','interactsh-client',
+        'xsstrike','secretfinder','linkfinder'
+    ]
+    env = dict(os.environ)
+    env['PATH'] = '/usr/local/bin:/usr/bin:/bin:/home/user/go/bin:' + env.get('PATH','')
+    for t in tool_list:
+        result = subprocess.run(['which', t], capture_output=True, env=env)
+        tools[t] = result.returncode == 0
+    installed = sum(1 for v in tools.values() if v)
+    return jsonify({"status":"ok","version":"3.0.0","tools":tools,
+                    "installed_count": installed, "total_count": len(tool_list)})
 
 @app.route('/api/scan/start', methods=['POST'])
 def scan_start():
@@ -1677,6 +2109,73 @@ def tool_whatweb():
     if not raw: return jsonify({"error":"Target required"}), 400
     return jsonify(run_whatweb(raw))
 
+@app.route('/api/tools/httpx', methods=['POST'])
+def tool_httpx():
+    raw = (request.json or {}).get('target','').strip()
+    if not raw: return jsonify({"error":"Target required"}), 400
+    return jsonify(run_httpx(raw))
+
+@app.route('/api/tools/dnsx', methods=['POST'])
+def tool_dnsx():
+    raw = (request.json or {}).get('target','').strip()
+    if not raw: return jsonify({"error":"Target required"}), 400
+    return jsonify(run_dnsx(raw))
+
+@app.route('/api/tools/katana', methods=['POST'])
+def tool_katana():
+    raw = (request.json or {}).get('target','').strip()
+    if not raw: return jsonify({"error":"Target required"}), 400
+    return jsonify(run_katana(raw))
+
+@app.route('/api/tools/gau', methods=['POST'])
+def tool_gau():
+    raw = (request.json or {}).get('target','').strip()
+    if not raw: return jsonify({"error":"Target required"}), 400
+    return jsonify(run_gau(raw))
+
+@app.route('/api/tools/dalfox', methods=['POST'])
+def tool_dalfox():
+    raw = (request.json or {}).get('target','').strip()
+    if not raw: return jsonify({"error":"Target required"}), 400
+    return jsonify(run_dalfox(raw))
+
+@app.route('/api/tools/sqlmap', methods=['POST'])
+def tool_sqlmap():
+    raw = (request.json or {}).get('target','').strip()
+    param = (request.json or {}).get('param','').strip() or None
+    if not raw: return jsonify({"error":"Target required"}), 400
+    return jsonify(run_sqlmap(raw, param=param))
+
+@app.route('/api/tools/amass', methods=['POST'])
+def tool_amass():
+    raw = (request.json or {}).get('target','').strip()
+    if not raw: return jsonify({"error":"Target required"}), 400
+    return jsonify(run_amass(raw))
+
+@app.route('/api/tools/waybackurls', methods=['POST'])
+def tool_waybackurls():
+    raw = (request.json or {}).get('target','').strip()
+    if not raw: return jsonify({"error":"Target required"}), 400
+    return jsonify(run_waybackurls(raw))
+
+@app.route('/api/tools/secretfinder', methods=['POST'])
+def tool_secretfinder():
+    raw = (request.json or {}).get('target','').strip()
+    if not raw: return jsonify({"error":"Target required"}), 400
+    return jsonify(run_secretfinder(raw))
+
+@app.route('/api/tools/linkfinder', methods=['POST'])
+def tool_linkfinder():
+    raw = (request.json or {}).get('target','').strip()
+    if not raw: return jsonify({"error":"Target required"}), 400
+    return jsonify(run_linkfinder(raw))
+
+@app.route('/api/tools/assetfinder', methods=['POST'])
+def tool_assetfinder():
+    raw = (request.json or {}).get('target','').strip()
+    if not raw: return jsonify({"error":"Target required"}), 400
+    return jsonify(run_assetfinder(raw))
+
 if __name__ == '__main__':
-    print("[*] Bug Bounty Hunter Pro API v2.1 starting on :5000")
+    print("[*] Bug Bounty Hunter Pro API v3.0 starting on :5000")
     app.run(host='127.0.0.1', port=5000, debug=False, threaded=True)
