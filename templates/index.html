@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bug Bounty Hunter Pro | AI-Powered Security Scanner</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <!-- Sidebar Navigation -->
+    <nav class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="logo">
+                <div class="logo-icon"><i class="fas fa-bug"></i></div>
+                <div class="logo-text">
+                    <span class="logo-title">BugHunter</span>
+                    <span class="logo-sub">Pro v1.0</span>
+                </div>
+            </div>
+            <button class="sidebar-toggle" id="sidebarToggle">
+                <i class="fas fa-bars"></i>
+            </button>
+        </div>
+        
+        <div class="nav-section">
+            <div class="nav-label">MAIN</div>
+            <a href="#" class="nav-item active" data-page="dashboard">
+                <i class="fas fa-tachometer-alt"></i>
+                <span>Dashboard</span>
+            </a>
+            <a href="#" class="nav-item" data-page="scanner">
+                <i class="fas fa-crosshairs"></i>
+                <span>Full Scanner</span>
+                <span class="badge badge-new">LIVE</span>
+            </a>
+            <a href="#" class="nav-item" data-page="results">
+                <i class="fas fa-list-alt"></i>
+                <span>Scan Results</span>
+                <span class="badge" id="resultsCount">0</span>
+            </a>
+        </div>
+        
+        <div class="nav-section">
+            <div class="nav-label">TOOLS</div>
+            <a href="#" class="nav-item" data-page="dns">
+                <i class="fas fa-network-wired"></i>
+                <span>DNS Recon</span>
+            </a>
+            <a href="#" class="nav-item" data-page="ports">
+                <i class="fas fa-plug"></i>
+                <span>Port Scanner</span>
+            </a>
+            <a href="#" class="nav-item" data-page="headers">
+                <i class="fas fa-shield-alt"></i>
+                <span>Security Headers</span>
+            </a>
+            <a href="#" class="nav-item" data-page="ssl">
+                <i class="fas fa-lock"></i>
+                <span>SSL/TLS Analyzer</span>
+            </a>
+            <a href="#" class="nav-item" data-page="cors">
+                <i class="fas fa-globe"></i>
+                <span>CORS Tester</span>
+            </a>
+            <a href="#" class="nav-item" data-page="fingerprint">
+                <i class="fas fa-fingerprint"></i>
+                <span>Tech Fingerprint</span>
+            </a>
+            <a href="#" class="nav-item" data-page="paths">
+                <i class="fas fa-folder-open"></i>
+                <span>Path Discovery</span>
+            </a>
+        </div>
+        
+        <div class="nav-section">
+            <div class="nav-label">ANALYSIS</div>
+            <a href="#" class="nav-item" data-page="cvss">
+                <i class="fas fa-calculator"></i>
+                <span>CVSS Calculator</span>
+            </a>
+            <a href="#" class="nav-item" data-page="poc">
+                <i class="fas fa-file-code"></i>
+                <span>PoC Generator</span>
+            </a>
+            <a href="#" class="nav-item" data-page="reports">
+                <i class="fas fa-file-alt"></i>
+                <span>Reports</span>
+            </a>
+        </div>
+        
+        <div class="sidebar-footer">
+            <div class="api-status">
+                <div class="status-dot" id="apiStatusDot"></div>
+                <span id="apiStatusText">Connecting...</span>
+            </div>
+        </div>
+    </nav>
+    
+    <!-- Main Content -->
+    <main class="main-content" id="mainContent">
+        <!-- Top Bar -->
+        <header class="topbar">
+            <div class="topbar-left">
+                <h1 class="page-title" id="pageTitle">Dashboard</h1>
+                <div class="breadcrumb">
+                    <span>BugHunter Pro</span>
+                    <i class="fas fa-chevron-right"></i>
+                    <span id="breadcrumbCurrent">Dashboard</span>
+                </div>
+            </div>
+            <div class="topbar-right">
+                <div class="target-quick">
+                    <input type="text" id="quickTarget" placeholder="Quick scan target..." autocomplete="off">
+                    <button class="btn btn-scan" onclick="quickScan()">
+                        <i class="fas fa-bolt"></i> Quick Scan
+                    </button>
+                </div>
+                <div class="scan-count-badge">
+                    <i class="fas fa-shield-alt"></i>
+                    <span id="totalScansCount">0</span> scans
+                </div>
+            </div>
+        </header>
+        
+        <!-- Page Content -->
+        <div class="content-wrapper">
+            
+            <!-- DASHBOARD PAGE -->
+            <div class="page active" id="page-dashboard">
+                <div class="hero-stats">
+                    <div class="stat-card critical">
+                        <div class="stat-icon"><i class="fas fa-skull-crossbones"></i></div>
+                        <div class="stat-info">
+                            <span class="stat-num" id="stat-critical">0</span>
+                            <span class="stat-label">Critical</span>
+                        </div>
+                    </div>
+                    <div class="stat-card high">
+                        <div class="stat-icon"><i class="fas fa-exclamation-triangle"></i></div>
+                        <div class="stat-info">
+                            <span class="stat-num" id="stat-high">0</span>
+                            <span class="stat-label">High</span>
+                        </div>
+                    </div>
+                    <div class="stat-card medium">
+                        <div class="stat-icon"><i class="fas fa-exclamation-circle"></i></div>
+                        <div class="stat-info">
+                            <span class="stat-num" id="stat-medium">0</span>
+                            <span class="stat-label">Medium</span>
+                        </div>
+                    </div>
+                    <div class="stat-card low">
+                        <div class="stat-icon"><i class="fas fa-info-circle"></i></div>
+                        <div class="stat-info">
+                            <span class="stat-num" id="stat-low">0</span>
+                            <span class="stat-label">Low / Info</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="dashboard-grid">
+                    <!-- Quick Scan Panel -->
+                    <div class="card scan-card">
+                        <div class="card-header">
+                            <h2><i class="fas fa-rocket"></i> Launch New Scan</h2>
+                        </div>
+                        <div class="card-body">
+                            <div class="scan-form">
+                                <div class="form-group">
+                                    <label>Target Domain / URL</label>
+                                    <div class="input-with-icon">
+                                        <i class="fas fa-crosshairs"></i>
+                                        <input type="text" id="dashTarget" placeholder="e.g. example.com or https://target.com" autocomplete="off">
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label>Scan Type</label>
+                                    <div class="scan-types">
+                                        <label class="scan-type-option">
+                                            <input type="radio" name="dashScanType" value="quick" checked>
+                                            <div class="option-card">
+                                                <i class="fas fa-bolt"></i>
+                                                <strong>Quick</strong>
+                                                <small>~2 min</small>
+                                            </div>
+                                        </label>
+                                        <label class="scan-type-option">
+                                            <input type="radio" name="dashScanType" value="full">
+                                            <div class="option-card">
+                                                <i class="fas fa-search"></i>
+                                                <strong>Full</strong>
+                                                <small>~5 min</small>
+                                            </div>
+                                        </label>
+                                    </div>
+                                </div>
+                                <button class="btn btn-primary btn-lg btn-full" onclick="startDashScan()">
+                                    <i class="fas fa-play"></i> Start Scan
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Recent Scans -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h2><i class="fas fa-history"></i> Recent Scans</h2>
+                            <button class="btn btn-sm" onclick="refreshScans()"><i class="fas fa-sync"></i></button>
+                        </div>
+                        <div class="card-body">
+                            <div id="recentScans">
+                                <div class="empty-state">
+                                    <i class="fas fa-search fa-3x"></i>
+                                    <p>No scans yet. Launch your first scan!</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Vulnerability Summary -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h2><i class="fas fa-chart-pie"></i> Vulnerability Distribution</h2>
+                        </div>
+                        <div class="card-body">
+                            <canvas id="vulnChart" width="300" height="220"></canvas>
+                        </div>
+                    </div>
+                    
+                    <!-- Tool Status -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h2><i class="fas fa-tools"></i> Tool Status</h2>
+                        </div>
+                        <div class="card-body">
+                            <div id="toolStatus">
+                                <div class="loading-spinner">
+                                    <i class="fas fa-spinner fa-spin"></i> Loading...
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- SCANNER PAGE -->
+            <div class="page" id="page-scanner">
+                <div class="scanner-layout">
+                    <!-- Scan Config -->
+                    <div class="card scan-config-card">
+                        <div class="card-header">
+                            <h2><i class="fas fa-crosshairs"></i> Full Security Scanner</h2>
+                            <span class="live-badge"><i class="fas fa-circle pulse-dot"></i> LIVE</span>
+                        </div>
+                        <div class="card-body">
+                            <div class="form-group">
+                                <label><i class="fas fa-bullseye"></i> Target</label>
+                                <input type="text" id="scanTarget" placeholder="domain.com or https://target.com" class="input-large" autocomplete="off">
+                            </div>
+                            <div class="form-group">
+                                <label><i class="fas fa-cogs"></i> Scan Mode</label>
+                                <div class="scan-mode-selector">
+                                    <button class="mode-btn active" data-mode="quick" onclick="setScanMode('quick', this)">
+                                        <i class="fas fa-bolt"></i> Quick Scan
+                                        <small>DNS, HTTP, Headers, SSL (~2 min)</small>
+                                    </button>
+                                    <button class="mode-btn" data-mode="full" onclick="setScanMode('full', this)">
+                                        <i class="fas fa-search-plus"></i> Full Scan
+                                        <small>All checks + Injection tests (~5 min)</small>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="scan-checklist">
+                                <div class="checklist-item active"><i class="fas fa-check-circle"></i> DNS Reconnaissance</div>
+                                <div class="checklist-item active"><i class="fas fa-check-circle"></i> HTTP Probe & Headers</div>
+                                <div class="checklist-item active"><i class="fas fa-check-circle"></i> Tech Fingerprinting</div>
+                                <div class="checklist-item active"><i class="fas fa-check-circle"></i> Port Scanning</div>
+                                <div class="checklist-item active"><i class="fas fa-check-circle"></i> SSL/TLS Analysis</div>
+                                <div class="checklist-item active"><i class="fas fa-check-circle"></i> Security Headers</div>
+                                <div class="checklist-item active"><i class="fas fa-check-circle"></i> CORS Misconfig</div>
+                                <div class="checklist-item active"><i class="fas fa-check-circle"></i> Path Discovery</div>
+                                <div class="checklist-item" id="injectionCheck"><i class="fas fa-times-circle"></i> Injection Tests (Full only)</div>
+                            </div>
+                            <button class="btn btn-primary btn-lg btn-full" id="startScanBtn" onclick="startFullScan()">
+                                <i class="fas fa-play"></i> Start Live Scan
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Live Scan Console -->
+                    <div class="card console-card" id="consoleCard">
+                        <div class="card-header">
+                            <h2><i class="fas fa-terminal"></i> Live Scan Console</h2>
+                            <div class="console-controls">
+                                <div class="progress-info">
+                                    <span id="scanPhase">Idle</span>
+                                    <div class="progress-bar-wrap">
+                                        <div class="progress-bar" id="progressBar" style="width:0%"></div>
+                                    </div>
+                                    <span id="progressPct">0%</span>
+                                </div>
+                                <button class="btn btn-sm" onclick="clearConsole()"><i class="fas fa-trash"></i></button>
+                            </div>
+                        </div>
+                        <div class="console-output" id="consoleOutput">
+                            <div class="console-welcome">
+                                <pre class="ascii-art">
+  ██████╗ ██╗   ██╗ ██████╗     ██╗  ██╗██╗   ██╗███╗   ██╗████████╗███████╗██████╗ 
+  ██╔══██╗██║   ██║██╔════╝     ██║  ██║██║   ██║████╗  ██║╚══██╔══╝██╔════╝██╔══██╗
+  ██████╔╝██║   ██║██║  ███╗    ███████║██║   ██║██╔██╗ ██║   ██║   █████╗  ██████╔╝
+  ██╔══██╗██║   ██║██║   ██║    ██╔══██║██║   ██║██║╚██╗██║   ██║   ██╔══╝  ██╔══██╗
+  ██████╔╝╚██████╔╝╚██████╔╝    ██║  ██║╚██████╔╝██║ ╚████║   ██║   ███████╗██║  ██║
+  ╚═════╝  ╚═════╝  ╚═════╝     ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝   ╚═╝   ╚══════╝╚═╝  ╚═╝
+                                PRO - AI-Powered Bug Bounty Scanner v1.0
+                </pre>
+                                <p class="console-hint">Enter target and click "Start Live Scan" to begin...</p>
+                            </div>
+                        </div>
+                        
+                        <!-- Live Findings Panel -->
+                        <div class="findings-live" id="findingsLive">
+                            <div class="findings-header">
+                                <span><i class="fas fa-bug"></i> Live Findings</span>
+                                <span class="findings-count" id="liveFindingsCount">0</span>
+                            </div>
+                            <div class="findings-list" id="liveFindings"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- RESULTS PAGE -->
+            <div class="page" id="page-results">
+                <div class="card">
+                    <div class="card-header">
+                        <h2><i class="fas fa-list-alt"></i> Scan History</h2>
+                        <div class="header-actions">
+                            <button class="btn btn-sm" onclick="refreshScans()"><i class="fas fa-sync"></i> Refresh</button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div id="scanHistoryTable">
+                            <div class="empty-state">
+                                <i class="fas fa-search fa-3x"></i>
+                                <p>No scan history yet.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Scan Detail Modal -->
+                <div class="scan-detail-panel" id="scanDetailPanel" style="display:none">
+                    <div class="card">
+                        <div class="card-header">
+                            <h2 id="detailTitle">Scan Details</h2>
+                            <button class="btn btn-sm" onclick="closeDetail()"><i class="fas fa-times"></i></button>
+                        </div>
+                        <div class="card-body" id="scanDetailContent"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- DNS TOOL PAGE -->
+            <div class="page" id="page-dns">
+                <div class="tool-layout">
+                    <div class="card tool-input-card">
+                        <div class="card-header">
+                            <h2><i class="fas fa-network-wired"></i> DNS Reconnaissance</h2>
+                        </div>
+                        <div class="card-body">
+                            <div class="form-group">
+                                <label>Target Domain</label>
+                                <input type="text" id="dnsTarget" placeholder="example.com" autocomplete="off">
+                            </div>
+                            <button class="btn btn-primary btn-full" onclick="runTool('dns')">
+                                <i class="fas fa-play"></i> Run DNS Lookup
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card tool-result-card" id="dnsResult" style="display:none">
+                        <div class="card-header">
+                            <h2><i class="fas fa-poll-h"></i> DNS Records</h2>
+                        </div>
+                        <div class="card-body" id="dnsResultContent"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- PORTS PAGE -->
+            <div class="page" id="page-ports">
+                <div class="tool-layout">
+                    <div class="card tool-input-card">
+                        <div class="card-header">
+                            <h2><i class="fas fa-plug"></i> Port Scanner</h2>
+                        </div>
+                        <div class="card-body">
+                            <div class="form-group">
+                                <label>Target Host</label>
+                                <input type="text" id="portsTarget" placeholder="example.com or IP" autocomplete="off">
+                            </div>
+                            <div class="info-note">
+                                <i class="fas fa-info-circle"></i>
+                                Scans common ports: 21, 22, 23, 25, 53, 80, 443, 445, 3306, 5432, 6379, 8080, 8443, 27017, and more
+                            </div>
+                            <button class="btn btn-primary btn-full" onclick="runTool('ports')">
+                                <i class="fas fa-play"></i> Scan Ports
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card tool-result-card" id="portsResult" style="display:none">
+                        <div class="card-header">
+                            <h2><i class="fas fa-poll-h"></i> Open Ports</h2>
+                        </div>
+                        <div class="card-body" id="portsResultContent"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- HEADERS PAGE -->
+            <div class="page" id="page-headers">
+                <div class="tool-layout">
+                    <div class="card tool-input-card">
+                        <div class="card-header">
+                            <h2><i class="fas fa-shield-alt"></i> Security Headers Analyzer</h2>
+                        </div>
+                        <div class="card-body">
+                            <div class="form-group">
+                                <label>Target URL</label>
+                                <input type="text" id="headersTarget" placeholder="https://example.com" autocomplete="off">
+                            </div>
+                            <button class="btn btn-primary btn-full" onclick="runTool('headers')">
+                                <i class="fas fa-play"></i> Analyze Headers
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card tool-result-card" id="headersResult" style="display:none">
+                        <div class="card-header">
+                            <h2><i class="fas fa-poll-h"></i> Header Analysis</h2>
+                        </div>
+                        <div class="card-body" id="headersResultContent"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- SSL PAGE -->
+            <div class="page" id="page-ssl">
+                <div class="tool-layout">
+                    <div class="card tool-input-card">
+                        <div class="card-header">
+                            <h2><i class="fas fa-lock"></i> SSL/TLS Analyzer</h2>
+                        </div>
+                        <div class="card-body">
+                            <div class="form-group">
+                                <label>Target Host</label>
+                                <input type="text" id="sslTarget" placeholder="example.com" autocomplete="off">
+                            </div>
+                            <button class="btn btn-primary btn-full" onclick="runTool('ssl')">
+                                <i class="fas fa-play"></i> Analyze SSL/TLS
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card tool-result-card" id="sslResult" style="display:none">
+                        <div class="card-header">
+                            <h2><i class="fas fa-poll-h"></i> SSL/TLS Results</h2>
+                        </div>
+                        <div class="card-body" id="sslResultContent"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- CORS PAGE -->
+            <div class="page" id="page-cors">
+                <div class="tool-layout">
+                    <div class="card tool-input-card">
+                        <div class="card-header">
+                            <h2><i class="fas fa-globe"></i> CORS Misconfiguration Tester</h2>
+                        </div>
+                        <div class="card-body">
+                            <div class="form-group">
+                                <label>Target URL</label>
+                                <input type="text" id="corsTarget" placeholder="https://api.example.com" autocomplete="off">
+                            </div>
+                            <div class="info-note">
+                                <i class="fas fa-info-circle"></i>
+                                Tests for CORS misconfigs using malicious origin headers
+                            </div>
+                            <button class="btn btn-primary btn-full" onclick="runTool('cors')">
+                                <i class="fas fa-play"></i> Test CORS
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card tool-result-card" id="corsResult" style="display:none">
+                        <div class="card-header">
+                            <h2><i class="fas fa-poll-h"></i> CORS Results</h2>
+                        </div>
+                        <div class="card-body" id="corsResultContent"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- FINGERPRINT PAGE -->
+            <div class="page" id="page-fingerprint">
+                <div class="tool-layout">
+                    <div class="card tool-input-card">
+                        <div class="card-header">
+                            <h2><i class="fas fa-fingerprint"></i> Technology Fingerprinting</h2>
+                        </div>
+                        <div class="card-body">
+                            <div class="form-group">
+                                <label>Target URL</label>
+                                <input type="text" id="fingerprintTarget" placeholder="https://example.com" autocomplete="off">
+                            </div>
+                            <button class="btn btn-primary btn-full" onclick="runTool('fingerprint')">
+                                <i class="fas fa-play"></i> Fingerprint Target
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card tool-result-card" id="fingerprintResult" style="display:none">
+                        <div class="card-header">
+                            <h2><i class="fas fa-poll-h"></i> Technologies Detected</h2>
+                        </div>
+                        <div class="card-body" id="fingerprintResultContent"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- PATHS PAGE -->
+            <div class="page" id="page-paths">
+                <div class="tool-layout">
+                    <div class="card tool-input-card">
+                        <div class="card-header">
+                            <h2><i class="fas fa-folder-open"></i> Path & Endpoint Discovery</h2>
+                        </div>
+                        <div class="card-body">
+                            <div class="form-group">
+                                <label>Target URL</label>
+                                <input type="text" id="pathsTarget" placeholder="https://example.com" autocomplete="off">
+                            </div>
+                            <div class="info-note">
+                                <i class="fas fa-info-circle"></i>
+                                Checks 40+ common paths: admin panels, config files, API docs, backups
+                            </div>
+                            <button class="btn btn-primary btn-full" onclick="runTool('paths')">
+                                <i class="fas fa-play"></i> Discover Paths
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card tool-result-card" id="pathsResult" style="display:none">
+                        <div class="card-header">
+                            <h2><i class="fas fa-poll-h"></i> Discovered Paths</h2>
+                        </div>
+                        <div class="card-body" id="pathsResultContent"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- CVSS CALCULATOR PAGE -->
+            <div class="page" id="page-cvss">
+                <div class="cvss-layout">
+                    <div class="card cvss-input-card">
+                        <div class="card-header">
+                            <h2><i class="fas fa-calculator"></i> CVSS 3.1 Calculator</h2>
+                        </div>
+                        <div class="card-body">
+                            <div class="cvss-metrics">
+                                <!-- Base Score Metrics -->
+                                <div class="metric-group">
+                                    <h3>Exploitability Metrics</h3>
+                                    
+                                    <div class="metric-item">
+                                        <label>Attack Vector (AV)</label>
+                                        <div class="metric-options">
+                                            <button class="metric-btn active" data-metric="AV" data-val="N" onclick="setCVSS(this, 'AV', 'N')">Network</button>
+                                            <button class="metric-btn" data-metric="AV" data-val="A" onclick="setCVSS(this, 'AV', 'A')">Adjacent</button>
+                                            <button class="metric-btn" data-metric="AV" data-val="L" onclick="setCVSS(this, 'AV', 'L')">Local</button>
+                                            <button class="metric-btn" data-metric="AV" data-val="P" onclick="setCVSS(this, 'AV', 'P')">Physical</button>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="metric-item">
+                                        <label>Attack Complexity (AC)</label>
+                                        <div class="metric-options">
+                                            <button class="metric-btn active" data-metric="AC" data-val="L" onclick="setCVSS(this, 'AC', 'L')">Low</button>
+                                            <button class="metric-btn" data-metric="AC" data-val="H" onclick="setCVSS(this, 'AC', 'H')">High</button>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="metric-item">
+                                        <label>Privileges Required (PR)</label>
+                                        <div class="metric-options">
+                                            <button class="metric-btn active" data-metric="PR" data-val="N" onclick="setCVSS(this, 'PR', 'N')">None</button>
+                                            <button class="metric-btn" data-metric="PR" data-val="L" onclick="setCVSS(this, 'PR', 'L')">Low</button>
+                                            <button class="metric-btn" data-metric="PR" data-val="H" onclick="setCVSS(this, 'PR', 'H')">High</button>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="metric-item">
+                                        <label>User Interaction (UI)</label>
+                                        <div class="metric-options">
+                                            <button class="metric-btn active" data-metric="UI" data-val="N" onclick="setCVSS(this, 'UI', 'N')">None</button>
+                                            <button class="metric-btn" data-metric="UI" data-val="R" onclick="setCVSS(this, 'UI', 'R')">Required</button>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="metric-group">
+                                    <h3>Impact Metrics</h3>
+                                    
+                                    <div class="metric-item">
+                                        <label>Scope (S)</label>
+                                        <div class="metric-options">
+                                            <button class="metric-btn active" data-metric="S" data-val="U" onclick="setCVSS(this, 'S', 'U')">Unchanged</button>
+                                            <button class="metric-btn" data-metric="S" data-val="C" onclick="setCVSS(this, 'S', 'C')">Changed</button>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="metric-item">
+                                        <label>Confidentiality (C)</label>
+                                        <div class="metric-options">
+                                            <button class="metric-btn" data-metric="C" data-val="N" onclick="setCVSS(this, 'C', 'N')">None</button>
+                                            <button class="metric-btn" data-metric="C" data-val="L" onclick="setCVSS(this, 'C', 'L')">Low</button>
+                                            <button class="metric-btn active" data-metric="C" data-val="H" onclick="setCVSS(this, 'C', 'H')">High</button>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="metric-item">
+                                        <label>Integrity (I)</label>
+                                        <div class="metric-options">
+                                            <button class="metric-btn active" data-metric="I" data-val="N" onclick="setCVSS(this, 'I', 'N')">None</button>
+                                            <button class="metric-btn" data-metric="I" data-val="L" onclick="setCVSS(this, 'I', 'L')">Low</button>
+                                            <button class="metric-btn" data-metric="I" data-val="H" onclick="setCVSS(this, 'I', 'H')">High</button>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="metric-item">
+                                        <label>Availability (A)</label>
+                                        <div class="metric-options">
+                                            <button class="metric-btn active" data-metric="A" data-val="N" onclick="setCVSS(this, 'A', 'N')">None</button>
+                                            <button class="metric-btn" data-metric="A" data-val="L" onclick="setCVSS(this, 'A', 'L')">Low</button>
+                                            <button class="metric-btn" data-metric="A" data-val="H" onclick="setCVSS(this, 'A', 'H')">High</button>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <button class="btn btn-primary btn-full" onclick="calculateCVSS()">
+                                    <i class="fas fa-calculator"></i> Calculate Score
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="card cvss-result-card">
+                        <div class="card-header">
+                            <h2><i class="fas fa-chart-bar"></i> CVSS Score</h2>
+                        </div>
+                        <div class="card-body">
+                            <div class="cvss-score-display" id="cvssDisplay">
+                                <div class="score-circle" id="scoreCircle">
+                                    <span class="score-num" id="cvssScore">0.0</span>
+                                    <span class="score-sev" id="cvssSeverity">NONE</span>
+                                </div>
+                                <div class="vector-string" id="cvssVector">CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N</div>
+                                
+                                <div class="severity-guide">
+                                    <div class="sev-item"><span class="sev-dot none"></span>0.0 - None</div>
+                                    <div class="sev-item"><span class="sev-dot low"></span>0.1-3.9 - Low</div>
+                                    <div class="sev-item"><span class="sev-dot medium"></span>4.0-6.9 - Medium</div>
+                                    <div class="sev-item"><span class="sev-dot high"></span>7.0-8.9 - High</div>
+                                    <div class="sev-item"><span class="sev-dot critical"></span>9.0-10.0 - Critical</div>
+                                </div>
+                                
+                                <div class="cvss-breakdown" id="cvssBreakdown"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- POC GENERATOR PAGE -->
+            <div class="page" id="page-poc">
+                <div class="card">
+                    <div class="card-header">
+                        <h2><i class="fas fa-file-code"></i> PoC Generator & Report Builder</h2>
+                    </div>
+                    <div class="card-body">
+                        <div class="poc-layout">
+                            <div class="poc-form">
+                                <div class="form-group">
+                                    <label>Vulnerability Type</label>
+                                    <select id="pocVulnType" onchange="updatePoCTemplate()">
+                                        <option value="IDOR">IDOR - Insecure Direct Object Reference</option>
+                                        <option value="XSS">XSS - Cross-Site Scripting</option>
+                                        <option value="SSRF">SSRF - Server-Side Request Forgery</option>
+                                        <option value="SQLi">SQL Injection</option>
+                                        <option value="CORS">CORS Misconfiguration</option>
+                                        <option value="Open Redirect">Open Redirect</option>
+                                        <option value="CSRF">CSRF - Cross-Site Request Forgery</option>
+                                        <option value="Auth Bypass">Authentication Bypass</option>
+                                        <option value="RCE">Remote Code Execution</option>
+                                        <option value="LFI">Local File Inclusion</option>
+                                        <option value="XXE">XXE - XML External Entity</option>
+                                        <option value="Race Condition">Race Condition</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>Target URL / Endpoint</label>
+                                    <input type="text" id="pocTarget" placeholder="https://target.com/api/endpoint">
+                                </div>
+                                <div class="form-group">
+                                    <label>Program (HackerOne/Bugcrowd handle)</label>
+                                    <input type="text" id="pocProgram" placeholder="target-program">
+                                </div>
+                                <div class="form-group">
+                                    <label>Impact Description</label>
+                                    <textarea id="pocImpact" placeholder="Describe the concrete impact..."></textarea>
+                                </div>
+                                <div class="form-group">
+                                    <label>HTTP Request</label>
+                                    <textarea id="pocRequest" placeholder="POST /api/user/123 HTTP/1.1&#10;Host: target.com&#10;Authorization: Bearer USER_A_TOKEN&#10;&#10;{&quot;action&quot;: &quot;read&quot;}"></textarea>
+                                </div>
+                                <div class="form-group">
+                                    <label>HTTP Response</label>
+                                    <textarea id="pocResponse" placeholder='{"id": 456, "email": "victim@example.com", "data": "..."}&#10;&#10;// Shows victim data returned for user 456 while authenticated as user 123'></textarea>
+                                </div>
+                                <button class="btn btn-primary btn-full" onclick="generatePoC()">
+                                    <i class="fas fa-magic"></i> Generate PoC Report
+                                </button>
+                            </div>
+                            <div class="poc-output">
+                                <div class="card poc-preview-card">
+                                    <div class="card-header">
+                                        <h2><i class="fas fa-eye"></i> PoC Preview</h2>
+                                        <button class="btn btn-sm" onclick="copyPoC()"><i class="fas fa-copy"></i> Copy</button>
+                                    </div>
+                                    <div class="card-body">
+                                        <div id="pocOutput">
+                                            <div class="empty-state">
+                                                <i class="fas fa-file-code fa-3x"></i>
+                                                <p>Fill in the form and click Generate</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- REPORTS PAGE -->
+            <div class="page" id="page-reports">
+                <div class="card">
+                    <div class="card-header">
+                        <h2><i class="fas fa-file-alt"></i> Scan Reports</h2>
+                    </div>
+                    <div class="card-body">
+                        <div id="reportsContent">
+                            <div class="empty-state">
+                                <i class="fas fa-file-alt fa-3x"></i>
+                                <p>Complete a scan to generate a report</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+        </div>
+    </main>
+    
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loadingOverlay" style="display:none">
+        <div class="loading-content">
+            <div class="spinner-ring"></div>
+            <p id="loadingText">Processing...</p>
+        </div>
+    </div>
+    
+    <!-- Toast Notifications -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
