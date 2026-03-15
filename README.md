@@ -2,10 +2,12 @@
 
 **Platform keamanan web profesional berbasis AI** dengan 25+ tool recon & vulnerability scanner terintegrasi dalam satu UI modern.
 
-![Version](https://img.shields.io/badge/version-3.0.0-red)
+![Version](https://img.shields.io/badge/version-7.0.0-red)
 ![Tools](https://img.shields.io/badge/tools-25%2B-orange)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
+
+> 📖 **Panduan instalasi lengkap di VPS**: lihat [`INSTALL_VPS.md`](./INSTALL_VPS.md)
 
 ---
 
@@ -17,7 +19,7 @@
 | 🌐 **HTTP Probe** | `httpx` (ProjectDiscovery), `curl` |
 | 🕷️ **Crawling & URLs** | `katana`, `gau`, `waybackurls`, `anew`, `gf` |
 | 🔌 **Port & Vuln** | `nmap`, `nikto`, `nuclei`, `ffuf` |
-| 💉 **Injection** | `dalfox` (XSS), `sqlmap` (SQLi), `xsstrike` |
+| 💉 **Injection** | `dalfox` (XSS), `sqlmap` **LIVE SSE** (SQLi), `xsstrike` |
 | 🔑 **Secrets** | `secretfinder`, `linkfinder` |
 | 🌍 **OSINT** | `whois`, `whatweb`, `interactsh-client`, `subjack` |
 
@@ -36,7 +38,28 @@
 
 ---
 
-## 🚀 Instalasi dari 0 (Step-by-Step)
+## 🚀 Instalasi Cepat (VPS / Ubuntu / Debian)
+
+> 📖 Panduan lengkap dengan SSL, Systemd, Firewall, Push GitHub: **[INSTALL_VPS.md](./INSTALL_VPS.md)**
+
+```bash
+# 1. Clone repo
+git clone https://github.com/pt-zenity/bug-bounty-hunter-pro.git
+cd bug-bounty-hunter-pro
+
+# 2. Jalankan auto-installer (install semua tools ~10-30 menit)
+chmod +x install.sh && ./install.sh
+
+# 3. Jalankan aplikasi
+chmod +x start.sh && ./start.sh
+
+# 4. Buka browser
+# http://localhost:3000  (atau http://IP_VPS:3000)
+```
+
+---
+
+## 📋 Instalasi dari 0 (Step-by-Step Manual)
 
 ### Step 1 — Clone Repository
 

@@ -915,38 +915,210 @@ def run_dalfox(target):
             })
     return {"target": url, "findings": findings, "count": len(findings), "raw": raw[:3000]}
 
-def run_sqlmap(target, param=None):
-    """Real sqlmap SQL injection scanner (safe level 1, no actual exploitation)."""
+def run_sqlmap(target, param=None, level=1, risk=1, technique='BEUSTQ',
+               dbms=None, crawl=0, forms=False, dbs=False, tables=False,
+               dump=False, tamper=None, extra_args=None):
+    """
+    Real sqlmap SQL injection scanner.
+    Returns structured findings + raw output.
+    """
     url = base_url(target)
-    # Build a test URL with common params if none provided
-    test_url = url
-    if '?' not in url:
-        test_url = f"{url}?id=1"
+    if '?' not in url and not forms and not crawl:
+        url = f"{url}?id=1"
+
     cmd = [
-        '/usr/local/bin/sqlmap', '-u', test_url,
-        '--batch', '--level=1', '--risk=1',
-        '--threads=3', '--timeout=10',
-        '--no-cast', '--technique=BEUSTQ',
+        'sqlmap', '-u', url,
+        '--batch',
+        f'--level={level}',
+        f'--risk={risk}',
+        '--threads=3',
+        '--timeout=15',
+        '--no-cast',
+        f'--technique={technique}',
         '--output-dir=/tmp/sqlmap_out',
         '--random-agent',
+        '--flush-session',
     ]
     if param:
         cmd.extend(['-p', param])
-    out, err, rc = _run_cmd(cmd, timeout=120)
+    if dbms:
+        cmd.extend(['--dbms', dbms])
+    if crawl and int(crawl) > 0:
+        cmd.extend(['--crawl', str(crawl)])
+    if forms:
+        cmd.append('--forms')
+    if dbs:
+        cmd.append('--dbs')
+    if tables:
+        cmd.append('--tables')
+    if tamper:
+        cmd.extend(['--tamper', tamper])
+    if extra_args:
+        cmd.extend(extra_args)
+
+    out, err, rc = _run_cmd(cmd, timeout=180)
     raw = (out or '') + (err or '')
+
+    return _parse_sqlmap_output(url, raw)
+
+
+def _parse_sqlmap_output(target_url, raw):
+    """
+    Parse sqlmap output into structured findings.
+    Extracts: injectable params, DB type/version, payloads, techniques, tables.
+    """
     findings = []
-    for line in raw.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        lc = line.lower()
-        if 'parameter' in lc and 'injectable' in lc:
-            findings.append({"type": "SQL Injection", "severity": "CRITICAL", "description": line, "source": "sqlmap"})
-        elif 'payload:' in lc or '[payload]' in lc:
-            findings.append({"type": "SQLi Payload", "severity": "HIGH", "description": line, "source": "sqlmap"})
-        elif 'warning:' in lc and any(x in lc for x in ['inject', 'sql', 'db']):
-            findings.append({"type": "SQLi Warning", "severity": "MEDIUM", "description": line, "source": "sqlmap"})
-    return {"target": test_url, "findings": findings, "count": len(findings), "raw": raw[:3000]}
+    lines = raw.splitlines()
+
+    injectable_params = []
+    db_type = None
+    db_version = None
+    current_param = None
+    payloads = []
+    techniques_found = []
+    tables_found = []
+    columns_found = []
+    current_technique = None
+
+    TECHNIQUE_NAMES = {
+        'B': 'Boolean-based blind',
+        'E': 'Error-based',
+        'U': 'UNION query',
+        'S': 'Stacked queries',
+        'T': 'Time-based blind',
+        'Q': 'Inline queries',
+    }
+
+    for line in lines:
+        ls = line.strip()
+        ll = ls.lower()
+
+        # Injectable parameter
+        if 'parameter' in ll and 'appear' in ll and 'inject' in ll:
+            m = re.search(r"parameter ['\"]?(\w+)['\"]?", ls, re.I)
+            if m:
+                current_param = m.group(1)
+                if current_param not in injectable_params:
+                    injectable_params.append(current_param)
+                findings.append({
+                    "type": "SQL Injection",
+                    "severity": "CRITICAL",
+                    "description": ls,
+                    "param": current_param,
+                    "source": "sqlmap",
+                    "affected": target_url,
+                })
+
+        # Injectable parameter (second pattern)
+        elif re.search(r'parameter ["\']?\w+["\']? is (vulnerable|injectable)', ls, re.I):
+            m = re.search(r'parameter ["\']?(\w+)["\']?', ls, re.I)
+            if m:
+                current_param = m.group(1)
+                if current_param not in injectable_params:
+                    injectable_params.append(current_param)
+                findings.append({
+                    "type": "SQL Injection",
+                    "severity": "CRITICAL",
+                    "description": f"Parameter '{current_param}' is injectable",
+                    "param": current_param,
+                    "source": "sqlmap",
+                    "affected": target_url,
+                })
+
+        # Technique
+        elif re.search(r'^\[(?:INFO|PAYLOAD|WARNING)\].*type:', ls):
+            for code, name in TECHNIQUE_NAMES.items():
+                if name.lower() in ll:
+                    if name not in techniques_found:
+                        techniques_found.append(name)
+                    current_technique = name
+
+        elif re.search(r'(boolean.based|error.based|union.query|stacked.queri|time.based|inline)', ll):
+            for code, name in TECHNIQUE_NAMES.items():
+                if name.lower().split('-')[0] in ll or name.lower().split(' ')[0] in ll:
+                    if name not in techniques_found:
+                        techniques_found.append(name)
+
+        # Payload line
+        elif ll.startswith('payload:') or '[payload]' in ll:
+            payload_val = re.sub(r'^\[?payload\]?:?\s*', '', ls, flags=re.I).strip()
+            if payload_val and payload_val not in payloads:
+                payloads.append(payload_val)
+                findings.append({
+                    "type": "SQLi Payload",
+                    "severity": "HIGH",
+                    "description": f"Effective payload: {payload_val}",
+                    "param": current_param or '?',
+                    "source": "sqlmap",
+                    "affected": target_url,
+                    "poc": payload_val,
+                })
+
+        # DB Type
+        elif 'back-end dbms:' in ll or 'the back-end dbms is' in ll:
+            m = re.search(r'(?:back-end dbms:|dbms is)\s*(.+)', ls, re.I)
+            if m:
+                db_type = m.group(1).strip().strip("'\"")
+
+        # DB Version
+        elif 'database management system version:' in ll or re.search(r'banner:\s*[\'"]', ll):
+            m = re.search(r"['\"]([^'\"]+)['\"]", ls)
+            if m:
+                db_version = m.group(1)
+
+        # Tables
+        elif re.match(r'^\|\s*\w', ls) and '|' in ls:
+            parts = [p.strip() for p in ls.split('|') if p.strip()]
+            for p in parts:
+                if p and not p.startswith('+') and p not in tables_found and not p.startswith('Database') and not p.startswith('Table'):
+                    tables_found.append(p)
+
+        # Warning
+        elif 'warning:' in ll and any(x in ll for x in ['inject', 'sql', 'db', 'param']):
+            findings.append({
+                "type": "SQLi Warning",
+                "severity": "MEDIUM",
+                "description": ls,
+                "source": "sqlmap",
+                "affected": target_url,
+            })
+
+    # Summary finding if injectable
+    if injectable_params:
+        summary_parts = []
+        if db_type:
+            summary_parts.append(f"DB: {db_type}")
+        if db_version:
+            summary_parts.append(f"Version: {db_version}")
+        if techniques_found:
+            summary_parts.append(f"Techniques: {', '.join(techniques_found)}")
+        if tables_found:
+            summary_parts.append(f"Tables: {', '.join(tables_found[:5])}")
+
+        findings.insert(0, {
+            "type": "Injectable Target",
+            "severity": "CRITICAL",
+            "description": f"Target is vulnerable to SQL Injection! Params: {', '.join(injectable_params)}. {' | '.join(summary_parts)}",
+            "param": ', '.join(injectable_params),
+            "source": "sqlmap",
+            "affected": target_url,
+            "remediation": "Use parameterized queries / prepared statements. Validate and sanitize all user inputs.",
+            "poc": payloads[0] if payloads else None,
+        })
+
+    return {
+        "target": target_url,
+        "findings": findings,
+        "count": len(findings),
+        "injectable_params": injectable_params,
+        "db_type": db_type,
+        "db_version": db_version,
+        "techniques": techniques_found,
+        "payloads": payloads,
+        "tables": tables_found,
+        "is_vulnerable": bool(injectable_params),
+        "raw": raw[:5000],
+    }
 
 def run_amass(target):
     """Real amass subdomain enumeration (passive mode, 60s)."""
@@ -3319,10 +3491,133 @@ def tool_dalfox():
 
 @app.route('/api/tools/sqlmap', methods=['POST'])
 def tool_sqlmap():
-    raw = (request.json or {}).get('target','').strip()
-    param = (request.json or {}).get('param','').strip() or None
+    data   = request.json or {}
+    raw    = data.get('target','').strip()
+    param  = data.get('param','').strip() or None
+    level  = int(data.get('level', 1))
+    risk   = int(data.get('risk', 1))
+    technique = data.get('technique', 'BEUSTQ').strip() or 'BEUSTQ'
+    dbms   = data.get('dbms','').strip() or None
+    crawl  = int(data.get('crawl', 0))
+    forms  = bool(data.get('forms', False))
+    dbs    = bool(data.get('dbs', False))
+    tables = bool(data.get('tables', False))
+    tamper = data.get('tamper','').strip() or None
     if not raw: return jsonify({"error":"Target required"}), 400
-    return jsonify(run_sqlmap(raw, param=param))
+    return jsonify(run_sqlmap(raw, param=param, level=level, risk=risk,
+                              technique=technique, dbms=dbms, crawl=crawl,
+                              forms=forms, dbs=dbs, tables=tables, tamper=tamper))
+
+
+@app.route('/api/tools/sqlmap/stream', methods=['POST'])
+def tool_sqlmap_stream():
+    """
+    SSE endpoint: streams sqlmap output line-by-line in real time.
+    Client receives: data: {"type":"log","line":"..."}\n\n
+                     data: {"type":"result","data":{...}}\n\n
+                     data: {"type":"done"}\n\n
+    """
+    data      = request.json or {}
+    raw       = data.get('target','').strip()
+    param     = data.get('param','').strip() or None
+    level     = int(data.get('level', 1))
+    risk      = int(data.get('risk', 1))
+    technique = data.get('technique', 'BEUSTQ').strip() or 'BEUSTQ'
+    dbms      = data.get('dbms','').strip() or None
+    crawl     = int(data.get('crawl', 0))
+    forms     = bool(data.get('forms', False))
+    dbs       = bool(data.get('dbs', False))
+    tables    = bool(data.get('tables', False))
+    tamper    = data.get('tamper','').strip() or None
+
+    if not raw:
+        return jsonify({"error":"Target required"}), 400
+
+    url = base_url(raw)
+    if '?' not in url and not forms and not crawl:
+        url = f"{url}?id=1"
+
+    cmd = [
+        'sqlmap', '-u', url,
+        '--batch',
+        f'--level={level}',
+        f'--risk={risk}',
+        '--threads=3',
+        '--timeout=15',
+        '--no-cast',
+        f'--technique={technique}',
+        '--output-dir=/tmp/sqlmap_out',
+        '--random-agent',
+        '--flush-session',
+    ]
+    if param:  cmd.extend(['-p', param])
+    if dbms:   cmd.extend(['--dbms', dbms])
+    if crawl and int(crawl) > 0: cmd.extend(['--crawl', str(crawl)])
+    if forms:  cmd.append('--forms')
+    if dbs:    cmd.append('--dbs')
+    if tables: cmd.append('--tables')
+    if tamper: cmd.extend(['--tamper', tamper])
+
+    def generate():
+        full_output = []
+        env = dict(os.environ)
+        env['HOME'] = '/home/user'
+        env['PATH'] = '/usr/local/bin:/usr/bin:/bin:/home/user/go/bin:' + env.get('PATH','')
+
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                env=env
+            )
+
+            # Classify each line for colour hints
+            def classify(line):
+                ll = line.lower()
+                if any(x in ll for x in ['critical','injectable','vulnerable','injection found']):
+                    return 'critical'
+                if any(x in ll for x in ['payload:', '[payload]', 'error-based', 'union', 'boolean', 'time-based', 'stacked']):
+                    return 'payload'
+                if any(x in ll for x in ['warning:', '[warning]']):
+                    return 'warning'
+                if any(x in ll for x in ['[info]', 'testing', 'checking', 'scanning', 'fetching']):
+                    return 'info'
+                if any(x in ll for x in ['[error]', 'connection refused', 'timeout']):
+                    return 'error'
+                if any(x in ll for x in ['back-end dbms:', 'banner:', 'database:', 'table']):
+                    return 'success'
+                return 'log'
+
+            for line in proc.stdout:
+                line = line.rstrip('\n')
+                if not line.strip():
+                    continue
+                full_output.append(line)
+                msg = json.dumps({"type": classify(line), "line": line})
+                yield f"data: {msg}\n\n"
+
+            proc.wait()
+
+        except Exception as e:
+            yield f"data: {json.dumps({'type':'error','line':str(e)})}\n\n"
+
+        # Parse collected output and send structured result
+        result = _parse_sqlmap_output(url, '\n'.join(full_output))
+        yield f"data: {json.dumps({'type':'result','data':result})}\n\n"
+        yield f"data: {json.dumps({'type':'done'})}\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no',
+            'Access-Control-Allow-Origin': '*',
+        }
+    )
 
 @app.route('/api/tools/amass', methods=['POST'])
 def tool_amass():

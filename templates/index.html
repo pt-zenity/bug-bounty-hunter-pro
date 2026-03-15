@@ -1156,24 +1156,224 @@
             <!-- SQLMAP PAGE -->
             <div class="page" id="page-sqlmap">
                 <div class="tool-layout">
+
+                    <!-- ── Config Panel ── -->
                     <div class="card">
-                        <div class="card-header"><h2><i class="fas fa-database"></i> SQLMap – SQL Injection</h2></div>
+                        <div class="card-header">
+                            <h2><i class="fas fa-database"></i> SQLMap – SQL Injection Scanner</h2>
+                            <span style="font-size:11px;padding:3px 10px;background:rgba(239,68,68,0.1);
+                                         border:1px solid rgba(239,68,68,0.2);border-radius:20px;color:#f87171">
+                                <i class="fas fa-circle" style="font-size:7px;vertical-align:middle"></i> LIVE
+                            </span>
+                        </div>
                         <div class="card-body">
+
+                            <!-- Target URL -->
                             <div class="form-group">
-                                <label class="form-label">Target URL (with GET params)</label>
-                                <input type="text" id="sqlmapTarget" placeholder="https://example.com/?id=1" autocomplete="off">
+                                <label class="form-label">
+                                    <i class="fas fa-crosshairs" style="color:var(--red);margin-right:5px"></i>
+                                    Target URL <span style="color:var(--red)">*</span>
+                                </label>
+                                <input type="text" id="sqlmapTarget"
+                                    placeholder="https://example.com/page.php?id=1"
+                                    autocomplete="off"
+                                    style="font-family:var(--mono);font-size:12px">
+                                <div style="font-size:11px;color:var(--text-muted);margin-top:4px">
+                                    Include GET parameters (e.g. ?id=1&cat=2) for best results
+                                </div>
                             </div>
-                            <div class="form-group">
-                                <label class="form-label">Parameter (optional)</label>
-                                <input type="text" id="sqlmapParam" placeholder="id" autocomplete="off">
+
+                            <!-- Param + DBMS row -->
+                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                                <div class="form-group">
+                                    <label class="form-label">
+                                        <i class="fas fa-tag" style="color:var(--accent);margin-right:4px"></i>
+                                        Parameter (optional)
+                                    </label>
+                                    <input type="text" id="sqlmapParam" placeholder="id" autocomplete="off"
+                                        style="font-family:var(--mono)">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">
+                                        <i class="fas fa-server" style="color:var(--accent);margin-right:4px"></i>
+                                        DBMS (optional)
+                                    </label>
+                                    <select id="sqlmapDbms">
+                                        <option value="">Auto-detect</option>
+                                        <option value="MySQL">MySQL</option>
+                                        <option value="PostgreSQL">PostgreSQL</option>
+                                        <option value="Microsoft SQL Server">MSSQL</option>
+                                        <option value="Oracle">Oracle</option>
+                                        <option value="SQLite">SQLite</option>
+                                        <option value="MariaDB">MariaDB</option>
+                                        <option value="MongoDB">MongoDB</option>
+                                    </select>
+                                </div>
                             </div>
-                            <div class="info-note"><i class="fas fa-info-circle"></i> SQLMap level 1, risk 1 — safe detection scan (~2min)</div>
-                            <button class="btn btn-primary btn-full" onclick="runSqlmap()"><i class="fas fa-play"></i> Run SQLMap</button>
+
+                            <!-- Level + Risk + Technique -->
+                            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+                                <div class="form-group">
+                                    <label class="form-label">
+                                        <i class="fas fa-tachometer-alt" style="color:var(--yellow);margin-right:4px"></i>
+                                        Level <span style="color:var(--text-muted);font-size:10px">(1–5)</span>
+                                    </label>
+                                    <select id="sqlmapLevel">
+                                        <option value="1" selected>1 – Basic</option>
+                                        <option value="2">2 – Cookie</option>
+                                        <option value="3">3 – User-Agent/Referer</option>
+                                        <option value="4">4 – Extended</option>
+                                        <option value="5">5 – Maximum</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">
+                                        <i class="fas fa-radiation" style="color:var(--orange);margin-right:4px"></i>
+                                        Risk <span style="color:var(--text-muted);font-size:10px">(1–3)</span>
+                                    </label>
+                                    <select id="sqlmapRisk">
+                                        <option value="1" selected>1 – Safe</option>
+                                        <option value="2">2 – Medium</option>
+                                        <option value="3">3 – Aggressive</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">
+                                        <i class="fas fa-code-branch" style="color:var(--cyan);margin-right:4px"></i>
+                                        Technique
+                                    </label>
+                                    <select id="sqlmapTechnique">
+                                        <option value="BEUSTQ" selected>All (BEUSTQ)</option>
+                                        <option value="B">Boolean-based (B)</option>
+                                        <option value="E">Error-based (E)</option>
+                                        <option value="U">UNION query (U)</option>
+                                        <option value="S">Stacked queries (S)</option>
+                                        <option value="T">Time-based (T)</option>
+                                        <option value="BET">B+E+T (Safe)</option>
+                                        <option value="BEU">B+E+U (Fast)</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <!-- Tamper + Crawl -->
+                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                                <div class="form-group">
+                                    <label class="form-label">
+                                        <i class="fas fa-mask" style="color:var(--purple,#8b5cf6);margin-right:4px"></i>
+                                        Tamper Script (optional)
+                                    </label>
+                                    <select id="sqlmapTamper">
+                                        <option value="">None</option>
+                                        <option value="space2comment">space2comment</option>
+                                        <option value="between">between</option>
+                                        <option value="randomcase">randomcase</option>
+                                        <option value="charencode">charencode</option>
+                                        <option value="base64encode">base64encode</option>
+                                        <option value="htmlencode">htmlencode</option>
+                                        <option value="modsecurityversioned">modsecurityversioned</option>
+                                        <option value="space2dash">space2dash</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">
+                                        <i class="fas fa-spider" style="color:var(--green);margin-right:4px"></i>
+                                        Crawl Depth
+                                    </label>
+                                    <select id="sqlmapCrawl">
+                                        <option value="0" selected>0 – No crawl</option>
+                                        <option value="1">1 – Shallow</option>
+                                        <option value="2">2 – Medium</option>
+                                        <option value="3">3 – Deep</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <!-- Checkboxes -->
+                            <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:14px">
+                                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--text-secondary)">
+                                    <input type="checkbox" id="sqlmapForms" style="accent-color:var(--accent)">
+                                    <span><i class="fas fa-wpforms" style="color:var(--accent);margin-right:4px"></i>Scan POST Forms</span>
+                                </label>
+                                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--text-secondary)">
+                                    <input type="checkbox" id="sqlmapDbs" style="accent-color:var(--accent)">
+                                    <span><i class="fas fa-database" style="color:var(--yellow);margin-right:4px"></i>Enumerate DBs</span>
+                                </label>
+                                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--text-secondary)">
+                                    <input type="checkbox" id="sqlmapTables" style="accent-color:var(--accent)">
+                                    <span><i class="fas fa-table" style="color:var(--orange);margin-right:4px"></i>Enumerate Tables</span>
+                                </label>
+                            </div>
+
+                            <!-- Quick presets -->
+                            <div style="margin-bottom:14px">
+                                <div style="font-size:11px;color:var(--text-muted);margin-bottom:7px;text-transform:uppercase;letter-spacing:0.5px">
+                                    <i class="fas fa-bolt" style="color:var(--yellow)"></i> Quick Presets
+                                </div>
+                                <div style="display:flex;flex-wrap:wrap;gap:7px">
+                                    <button onclick="sqlmapPreset('quick')"
+                                        style="font-size:11px;padding:4px 12px;background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.25);border-radius:6px;color:#10b981;cursor:pointer">
+                                        <i class="fas fa-rabbit"></i> Quick (L1R1)
+                                    </button>
+                                    <button onclick="sqlmapPreset('standard')"
+                                        style="font-size:11px;padding:4px 12px;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.25);border-radius:6px;color:#818cf8;cursor:pointer">
+                                        <i class="fas fa-balance-scale"></i> Standard (L2R1)
+                                    </button>
+                                    <button onclick="sqlmapPreset('thorough')"
+                                        style="font-size:11px;padding:4px 12px;background:rgba(249,115,22,0.1);border:1px solid rgba(249,115,22,0.25);border-radius:6px;color:#f97316;cursor:pointer">
+                                        <i class="fas fa-microscope"></i> Thorough (L3R2)
+                                    </button>
+                                    <button onclick="sqlmapPreset('aggressive')"
+                                        style="font-size:11px;padding:4px 12px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);border-radius:6px;color:#f87171;cursor:pointer">
+                                        <i class="fas fa-skull"></i> Aggressive (L5R3)
+                                    </button>
+                                    <button onclick="sqlmapPreset('forms')"
+                                        style="font-size:11px;padding:4px 12px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.25);border-radius:6px;color:#f59e0b;cursor:pointer">
+                                        <i class="fas fa-wpforms"></i> Forms Scan
+                                    </button>
+                                </div>
+                            </div>
+
+                            <button class="btn btn-primary btn-full" id="sqlmapRunBtn" onclick="runSqlmap()">
+                                <i class="fas fa-play"></i> Run SQLMap Live
+                            </button>
+                            <button class="btn btn-full" id="sqlmapStopBtn" onclick="stopSqlmap()"
+                                style="display:none;margin-top:8px;background:rgba(239,68,68,0.15);
+                                       border-color:rgba(239,68,68,0.3);color:#f87171">
+                                <i class="fas fa-stop"></i> Stop Scan
+                            </button>
                         </div>
                     </div>
-                    <div class="card tool-result-card" id="sqlmapResult" style="display:none">
-                        <div class="card-header"><h2><i class="fas fa-exclamation-triangle"></i> SQLMap Findings</h2></div>
-                        <div class="card-body" id="sqlmapResultContent"></div>
+
+                    <!-- ── Live Console + Results ── -->
+                    <div style="display:flex;flex-direction:column;gap:14px">
+
+                        <!-- Live console -->
+                        <div class="card" id="sqlmapConsoleCard" style="display:none">
+                            <div class="card-header" style="padding:10px 16px">
+                                <h2 style="font-size:13px"><i class="fas fa-terminal"></i> Live Output</h2>
+                                <div style="display:flex;gap:8px;align-items:center">
+                                    <span id="sqlmapStatus" style="font-size:11px;color:var(--text-muted)"></span>
+                                    <div id="sqlmapSpinner" style="display:none">
+                                        <i class="fas fa-circle-notch fa-spin" style="color:var(--accent);font-size:12px"></i>
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="sqlmapConsole"
+                                style="background:#0d1117;font-family:var(--mono);font-size:11px;
+                                       padding:12px 14px;height:320px;overflow-y:auto;
+                                       line-height:1.6;border-radius:0 0 10px 10px">
+                            </div>
+                        </div>
+
+                        <!-- Results card -->
+                        <div class="card tool-result-card" id="sqlmapResult" style="display:none">
+                            <div class="card-header">
+                                <h2><i class="fas fa-exclamation-triangle"></i> SQLMap Results</h2>
+                                <span id="sqlmapResultBadge" style="font-size:11px;padding:3px 10px;border-radius:20px"></span>
+                            </div>
+                            <div class="card-body" id="sqlmapResultContent"></div>
+                        </div>
+
                     </div>
                 </div>
             </div>
