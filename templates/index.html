@@ -840,30 +840,134 @@
 
             <!-- NUCLEI PAGE -->
             <div class="page" id="page-nuclei">
-                <div class="tool-layout">
-                    <div class="card">
-                        <div class="card-header"><h2><i class="fas fa-radiation"></i> Nuclei Vulnerability Scanner</h2></div>
-                        <div class="card-body">
-                            <div class="form-group">
-                                <label class="form-label">Target URL</label>
-                                <input type="text" id="nucleiTarget" placeholder="https://example.com" autocomplete="off">
+                <!-- Stats Bar -->
+                <div id="nucleiStatsBar" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:18px"></div>
+
+                <div class="tool-layout" style="grid-template-columns:340px 1fr;gap:18px">
+                    <!-- Left: Config Panel -->
+                    <div style="display:flex;flex-direction:column;gap:14px">
+                        <!-- Scan Config Card -->
+                        <div class="card">
+                            <div class="card-header" style="padding:14px 16px">
+                                <h2 style="font-size:14px"><i class="fas fa-radiation" style="color:#ef4444"></i> Nuclei Scanner v4</h2>
                             </div>
-                            <div class="form-group">
-                                <label class="form-label">Severity Filter</label>
-                                <select id="nucleiSeverity" style="width:100%;padding:10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:8px;color:var(--text-primary)">
-                                    <option value="medium,high,critical">Medium + High + Critical</option>
-                                    <option value="critical">Critical Only</option>
-                                    <option value="high,critical">High + Critical</option>
-                                    <option value="low,medium,high,critical">All (Low+)</option>
-                                </select>
+                            <div class="card-body" style="padding:14px">
+                                <div class="form-group">
+                                    <label class="form-label">Target URL</label>
+                                    <input type="text" id="nucleiTarget" placeholder="https://example.com" autocomplete="off">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Severity Filter</label>
+                                    <select id="nucleiSeverity" style="width:100%;padding:9px 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:8px;color:var(--text-primary);font-size:13px">
+                                        <option value="medium,high,critical">Medium + High + Critical</option>
+                                        <option value="critical">Critical Only</option>
+                                        <option value="high,critical">High + Critical</option>
+                                        <option value="low,medium,high,critical">Low and above</option>
+                                        <option value="info,low,medium,high,critical">All (incl. Info)</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Scan Mode</label>
+                                    <select id="nucleiMode" onchange="onNucleiModeChange()" style="width:100%;padding:9px 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:8px;color:var(--text-primary);font-size:13px">
+                                        <option value="default">🔥 Default (CVE+Misconfig+Panels+Takeovers+Vulns+Exposures)</option>
+                                        <option value="category">📂 By Category</option>
+                                        <option value="tags">🏷️ By Tags</option>
+                                        <option value="custom">✏️ Custom Templates Path</option>
+                                    </select>
+                                </div>
+                                <!-- Category selector (hidden by default) -->
+                                <div id="nucleiCategoryGroup" class="form-group" style="display:none">
+                                    <label class="form-label">Template Category</label>
+                                    <select id="nucleiCategory" style="width:100%;padding:9px 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:8px;color:var(--text-primary);font-size:13px">
+                                        <option value="cves">CVEs (3800+ templates)</option>
+                                        <option value="misconfiguration">Misconfiguration (900+)</option>
+                                        <option value="exposed-panels">Exposed Panels (1300+)</option>
+                                        <option value="takeovers">Subdomain Takeovers (70+)</option>
+                                        <option value="default-logins">Default Credentials (270+)</option>
+                                        <option value="technologies">Technology Detection (860+)</option>
+                                        <option value="vulnerabilities">Vulnerabilities (930+)</option>
+                                        <option value="exposures">Exposures (680+)</option>
+                                        <option value="fuzzing">Fuzzing Templates</option>
+                                        <option value="cnvd">CNVD (China NVD)</option>
+                                        <option value="iot">IoT Devices</option>
+                                        <option value="dns">DNS Checks (30+)</option>
+                                        <option value="ssl">SSL/TLS (38)</option>
+                                        <option value="network">Network (278+)</option>
+                                        <option value="workflows">Workflows (200+)</option>
+                                        <option value="credential-stuffing">Credential Stuffing</option>
+                                        <option value="osint">OSINT</option>
+                                        <option value="miscellaneous">Miscellaneous</option>
+                                    </select>
+                                </div>
+                                <!-- Tags input (hidden by default) -->
+                                <div id="nucleiTagsGroup" class="form-group" style="display:none">
+                                    <label class="form-label">Tags (comma-separated)</label>
+                                    <input type="text" id="nucleiTags" placeholder="e.g. cve,rce,sqli" autocomplete="off">
+                                </div>
+                                <!-- Custom templates path (hidden by default) -->
+                                <div id="nucleiCustomGroup" class="form-group" style="display:none">
+                                    <label class="form-label">Templates Path/ID</label>
+                                    <input type="text" id="nucleiCustomTemplates" placeholder="http/cves,http/misconfiguration" autocomplete="off">
+                                    <small style="color:var(--text-muted);font-size:10px">Relative paths from templates dir, comma-separated</small>
+                                </div>
+                                <div class="info-note" style="font-size:11px"><i class="fas fa-database"></i> <span id="nucleiTemplateCount">12,761</span> templates | <span id="nucleiCategoryCount">18</span> categories installed</div>
+                                <button class="btn btn-primary btn-full" onclick="runNuclei()" style="margin-top:10px"><i class="fas fa-play"></i> Run Nuclei Scan</button>
+                                <button class="btn" onclick="loadNucleiStats()" style="margin-top:8px;width:100%;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);font-size:12px"><i class="fas fa-chart-bar"></i> Refresh Template Stats</button>
                             </div>
-                            <div class="info-note"><i class="fas fa-info-circle"></i> Template-based scanner — CVEs, misconfigs, exposed panels (~2min)</div>
-                            <button class="btn btn-primary btn-full" onclick="runNuclei()"><i class="fas fa-play"></i> Run Nuclei Scan</button>
+                        </div>
+
+                        <!-- Quick Category Buttons -->
+                        <div class="card">
+                            <div class="card-header" style="padding:12px 16px">
+                                <h2 style="font-size:13px"><i class="fas fa-bolt" style="color:#f59e0b"></i> Quick Scans</h2>
+                            </div>
+                            <div class="card-body" style="padding:10px;display:grid;grid-template-columns:1fr 1fr;gap:6px">
+                                <button class="btn" onclick="quickNucleiScan('cves')" style="font-size:11px;padding:8px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2);color:#ef4444"><i class="fas fa-skull-crossbones"></i> CVEs</button>
+                                <button class="btn" onclick="quickNucleiScan('misconfiguration')" style="font-size:11px;padding:8px;background:rgba(249,115,22,0.1);border:1px solid rgba(249,115,22,0.2);color:#f97316"><i class="fas fa-cogs"></i> Misconfig</button>
+                                <button class="btn" onclick="quickNucleiScan('exposed-panels')" style="font-size:11px;padding:8px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.2);color:#f59e0b"><i class="fas fa-door-open"></i> Panels</button>
+                                <button class="btn" onclick="quickNucleiScan('takeovers')" style="font-size:11px;padding:8px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2);color:#ef4444"><i class="fas fa-flag"></i> Takeovers</button>
+                                <button class="btn" onclick="quickNucleiScan('default-logins')" style="font-size:11px;padding:8px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2);color:#ef4444"><i class="fas fa-key"></i> Def. Logins</button>
+                                <button class="btn" onclick="quickNucleiScan('exposures')" style="font-size:11px;padding:8px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.2);color:#f59e0b"><i class="fas fa-eye"></i> Exposures</button>
+                                <button class="btn" onclick="quickNucleiScan('ssl')" style="font-size:11px;padding:8px;background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);color:#10b981"><i class="fas fa-lock"></i> SSL/TLS</button>
+                                <button class="btn" onclick="quickNucleiScan('technologies')" style="font-size:11px;padding:8px;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.2);color:#818cf8"><i class="fas fa-microchip"></i> Tech Detect</button>
+                                <button class="btn" onclick="quickNucleiScan('dns')" style="font-size:11px;padding:8px;background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.2);color:#3b82f6"><i class="fas fa-server"></i> DNS</button>
+                                <button class="btn" onclick="quickNucleiScan('network')" style="font-size:11px;padding:8px;background:rgba(6,182,212,0.1);border:1px solid rgba(6,182,212,0.2);color:#06b6d4"><i class="fas fa-project-diagram"></i> Network</button>
+                                <button class="btn" onclick="quickNucleiScan('vulnerabilities')" style="font-size:11px;padding:8px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2);color:#ef4444"><i class="fas fa-radiation"></i> Vulns</button>
+                                <button class="btn" onclick="quickNucleiScan('iot')" style="font-size:11px;padding:8px;background:rgba(20,184,166,0.1);border:1px solid rgba(20,184,166,0.2);color:#14b8a6"><i class="fas fa-network-wired"></i> IoT</button>
+                            </div>
                         </div>
                     </div>
-                    <div class="card tool-result-card" id="nucleiResult" style="display:none">
-                        <div class="card-header"><h2><i class="fas fa-radiation-alt"></i> Nuclei Findings</h2></div>
-                        <div class="card-body" id="nucleiResultContent"></div>
+
+                    <!-- Right: Results -->
+                    <div style="display:flex;flex-direction:column;gap:14px">
+                        <!-- Template Stats Grid -->
+                        <div class="card" id="nucleiCategoryStatsCard" style="display:none">
+                            <div class="card-header" style="padding:12px 16px">
+                                <h2 style="font-size:13px"><i class="fas fa-layer-group" style="color:#6366f1"></i> Template Categories</h2>
+                            </div>
+                            <div class="card-body" style="padding:12px">
+                                <div id="nucleiCategoryGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px"></div>
+                            </div>
+                        </div>
+
+                        <!-- Scan Results -->
+                        <div class="card" id="nucleiResult" style="display:none">
+                            <div class="card-header" style="padding:14px 16px;display:flex;align-items:center;justify-content:space-between">
+                                <h2 style="font-size:14px"><i class="fas fa-radiation-alt" style="color:#ef4444"></i> Nuclei Findings</h2>
+                                <div id="nucleiSeverityBadges" style="display:flex;gap:6px"></div>
+                            </div>
+                            <div class="card-body" style="padding:14px" id="nucleiResultContent"></div>
+                        </div>
+
+                        <!-- Raw Output -->
+                        <div class="card" id="nucleiRawCard" style="display:none">
+                            <div class="card-header" style="padding:12px 16px;cursor:pointer" onclick="toggleNucleiRaw()">
+                                <h2 style="font-size:13px"><i class="fas fa-terminal" style="color:var(--text-muted)"></i> Raw Nuclei Output <span id="nucleiRawToggle" style="font-size:11px;color:var(--text-muted)">[click to expand]</span></h2>
+                            </div>
+                            <div class="card-body" id="nucleiRawContent" style="display:none;padding:12px">
+                                <pre id="nucleiRawPre" style="font-size:10px;background:rgba(0,0,0,0.2);padding:12px;border-radius:6px;overflow-x:auto;white-space:pre-wrap;max-height:300px;overflow-y:auto"></pre>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>

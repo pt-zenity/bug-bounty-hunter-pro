@@ -95,6 +95,7 @@ function navigateTo(pageName) {
     // Load page-specific data
     if (pageName === 'results') loadScanHistory();   // now async
     if (pageName === 'reports') loadReports();
+    if (pageName === 'nuclei')  onPageNucleiEnter(); // load nuclei template stats
 }
 
 // ─── API Status ───────────────────────────────────────────────────────────────
@@ -111,6 +112,15 @@ async function checkAPIStatus() {
             // Update tool status
             if (data.tools) {
                 renderToolStatus(data.tools);
+            }
+            // Update nuclei template info if on nuclei page
+            if (data.nuclei_templates) {
+                const el = document.getElementById('nucleiTemplateCount');
+                if (el) el.textContent = data.nuclei_templates.toLocaleString();
+            }
+            if (data.nuclei_categories) {
+                const el = document.getElementById('nucleiCategoryCount');
+                if (el) el.textContent = data.nuclei_categories;
             }
         }
     } catch {
@@ -662,34 +672,185 @@ async function runTool(tool) {
 }
 
 async function runNuclei() {
-    const targetEl = document.getElementById('nucleiTarget');
-    const sevEl    = document.getElementById('nucleiSeverity');
-    const resultCard    = document.getElementById('nucleiResult');
+    const targetEl   = document.getElementById('nucleiTarget');
+    const sevEl      = document.getElementById('nucleiSeverity');
+    const modeEl     = document.getElementById('nucleiMode');
+    const catEl      = document.getElementById('nucleiCategory');
+    const tagsEl     = document.getElementById('nucleiTags');
+    const customEl   = document.getElementById('nucleiCustomTemplates');
+    const resultCard = document.getElementById('nucleiResult');
     const resultContent = document.getElementById('nucleiResultContent');
+    const rawCard    = document.getElementById('nucleiRawCard');
+
     if (!targetEl) return;
     const target   = targetEl.value.trim();
     const severity = sevEl ? sevEl.value : 'medium,high,critical';
-    if (!target) { showToast('Please enter a target', 'error'); return; }
+    const mode     = modeEl ? modeEl.value : 'default';
+    if (!target) { showToast('Please enter a target URL', 'error'); return; }
 
-    showLoading('Running Nuclei scan… this may take up to 2 minutes');
-    resultCard.style.display = 'none';
+    const payload = { target, severity };
+    let scanLabel = 'Default (7 categories)';
+
+    if (mode === 'category' && catEl) {
+        payload.category = catEl.value;
+        scanLabel = 'Category: ' + catEl.options[catEl.selectedIndex].text;
+    } else if (mode === 'tags' && tagsEl && tagsEl.value.trim()) {
+        payload.tags = tagsEl.value.trim();
+        scanLabel = 'Tags: ' + tagsEl.value.trim();
+    } else if (mode === 'custom' && customEl && customEl.value.trim()) {
+        payload.templates = customEl.value.trim();
+        scanLabel = 'Custom: ' + customEl.value.trim();
+    }
+
+    showLoading(`Running Nuclei scan [${scanLabel}]… this may take 2–3 minutes`);
+    if (resultCard) resultCard.style.display = 'none';
+    if (rawCard) rawCard.style.display = 'none';
+
     try {
         const resp = await fetch(`${API_BASE}/tools/nuclei`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ target, severity })
+            body: JSON.stringify(payload)
         });
         const data = await resp.json();
         hideLoading();
-        resultCard.style.display = 'block';
+        if (resultCard) resultCard.style.display = 'block';
         renderNucleiResults(resultContent, data);
+        // Render severity badges in header
+        renderNucleiSeverityBadges(data);
+        // Show raw output
+        if (data.raw) {
+            if (rawCard) rawCard.style.display = 'block';
+            const pre = document.getElementById('nucleiRawPre');
+            if (pre) pre.textContent = data.raw;
+        }
     } catch(err) {
         hideLoading();
         showToast('Nuclei error: ' + err.message, 'error');
-        resultCard.style.display = 'block';
-        resultContent.innerHTML = `<div class="empty-state"><p>Error: ${escapeHtml(err.message)}</p></div>`;
+        if (resultCard) resultCard.style.display = 'block';
+        if (resultContent) resultContent.innerHTML = `<div class="empty-state"><p>Error: ${escapeHtml(err.message)}</p></div>`;
     }
 }
+
+function onNucleiModeChange() {
+    const mode = document.getElementById('nucleiMode')?.value;
+    document.getElementById('nucleiCategoryGroup').style.display = mode === 'category' ? 'block' : 'none';
+    document.getElementById('nucleiTagsGroup').style.display    = mode === 'tags'     ? 'block' : 'none';
+    document.getElementById('nucleiCustomGroup').style.display  = mode === 'custom'   ? 'block' : 'none';
+}
+
+function quickNucleiScan(category) {
+    // Switch to category mode, select the category, and run
+    const modeEl = document.getElementById('nucleiMode');
+    const catEl  = document.getElementById('nucleiCategory');
+    if (modeEl) { modeEl.value = 'category'; onNucleiModeChange(); }
+    if (catEl) catEl.value = category;
+    // Check if we need to auto-adjust severity for info-only categories
+    const sevEl = document.getElementById('nucleiSeverity');
+    const infoCategories = ['technologies', 'exposed-panels', 'dns', 'ssl', 'osint'];
+    if (sevEl && infoCategories.includes(category)) {
+        sevEl.value = 'info,low,medium,high,critical';
+    }
+    runNuclei();
+}
+
+async function loadNucleiStats() {
+    try {
+        const resp = await fetch(`${API_BASE}/tools/nuclei/templates/stats`);
+        const data = await resp.json();
+        renderNucleiTemplateStats(data);
+    } catch(err) {
+        console.warn('Could not load nuclei stats:', err);
+    }
+}
+
+function renderNucleiTemplateStats(data) {
+    // Stats bar at top
+    const statsBar = document.getElementById('nucleiStatsBar');
+    if (statsBar) {
+        statsBar.innerHTML = `
+            <div style="background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.2);border-radius:10px;padding:12px 16px;display:flex;align-items:center;gap:10px">
+                <i class="fas fa-database" style="color:#818cf8;font-size:18px"></i>
+                <div><div style="font-size:20px;font-weight:700;color:#818cf8">${(data.total||0).toLocaleString()}</div><div style="font-size:10px;color:var(--text-muted)">Total Templates</div></div>
+            </div>
+            <div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2);border-radius:10px;padding:12px 16px;display:flex;align-items:center;gap:10px">
+                <i class="fas fa-skull-crossbones" style="color:#ef4444;font-size:18px"></i>
+                <div><div style="font-size:20px;font-weight:700;color:#ef4444">${(data.categories?.cves?.count||0).toLocaleString()}</div><div style="font-size:10px;color:var(--text-muted)">CVE Templates</div></div>
+            </div>
+            <div style="background:rgba(249,115,22,0.1);border:1px solid rgba(249,115,22,0.2);border-radius:10px;padding:12px 16px;display:flex;align-items:center;gap:10px">
+                <i class="fas fa-cogs" style="color:#f97316;font-size:18px"></i>
+                <div><div style="font-size:20px;font-weight:700;color:#f97316">${(data.categories?.misconfiguration?.count||0).toLocaleString()}</div><div style="font-size:10px;color:var(--text-muted)">Misconfig</div></div>
+            </div>
+            <div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.2);border-radius:10px;padding:12px 16px;display:flex;align-items:center;gap:10px">
+                <i class="fas fa-door-open" style="color:#f59e0b;font-size:18px"></i>
+                <div><div style="font-size:20px;font-weight:700;color:#f59e0b">${(data.categories?.['exposed-panels']?.count||0).toLocaleString()}</div><div style="font-size:10px;color:var(--text-muted)">Exposed Panels</div></div>
+            </div>
+            <div style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);border-radius:10px;padding:12px 16px;display:flex;align-items:center;gap:10px">
+                <i class="fas fa-lock" style="color:#10b981;font-size:18px"></i>
+                <div><div style="font-size:20px;font-weight:700;color:#10b981">${(data.categories?.ssl?.count||0).toLocaleString()}</div><div style="font-size:10px;color:var(--text-muted)">SSL/TLS</div></div>
+            </div>
+            <div style="background:rgba(6,182,212,0.1);border:1px solid rgba(6,182,212,0.2);border-radius:10px;padding:12px 16px;display:flex;align-items:center;gap:10px">
+                <i class="fas fa-project-diagram" style="color:#06b6d4;font-size:18px"></i>
+                <div><div style="font-size:20px;font-weight:700;color:#06b6d4">${(data.categories?.network?.count||0).toLocaleString()}</div><div style="font-size:10px;color:var(--text-muted)">Network</div></div>
+            </div>
+        `;
+    }
+
+    // Update inline counts
+    const tplCount = document.getElementById('nucleiTemplateCount');
+    const catCount = document.getElementById('nucleiCategoryCount');
+    if (tplCount) tplCount.textContent = (data.total||0).toLocaleString();
+    if (catCount) catCount.textContent = Object.keys(data.categories||{}).length;
+
+    // Category grid
+    const grid = document.getElementById('nucleiCategoryGrid');
+    const card = document.getElementById('nucleiCategoryStatsCard');
+    if (grid && data.categories) {
+        card.style.display = 'block';
+        grid.innerHTML = Object.entries(data.categories).map(([id, cat]) => `
+            <div onclick="quickNucleiScan('${escapeHtml(id)}')" style="cursor:pointer;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:10px 12px;transition:background 0.2s" onmouseover="this.style.background='rgba(255,255,255,0.07)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+                    <i class="fas ${escapeHtml(cat.icon||'fa-folder')}" style="color:${escapeHtml(cat.color||'#888')};font-size:14px;width:16px"></i>
+                    <span style="font-size:12px;font-weight:600;color:var(--text-primary)">${escapeHtml(cat.label)}</span>
+                </div>
+                <div style="font-size:18px;font-weight:700;color:${escapeHtml(cat.color||'#888')}">${(cat.count||0).toLocaleString()}</div>
+                <div style="font-size:10px;color:var(--text-muted);margin-top:2px">templates</div>
+            </div>
+        `).join('');
+    }
+}
+
+function renderNucleiSeverityBadges(data) {
+    const el = document.getElementById('nucleiSeverityBadges');
+    if (!el) return;
+    const s = data.severity_summary || {};
+    const items = [
+        ['CRITICAL', '#ef4444', s.CRITICAL||0],
+        ['HIGH',     '#f97316', s.HIGH||0],
+        ['MEDIUM',   '#f59e0b', s.MEDIUM||0],
+        ['LOW',      '#3b82f6', s.LOW||0],
+        ['INFO',     '#94a3b8', s.INFO||0],
+    ].filter(([,, count]) => count > 0);
+    el.innerHTML = items.map(([label, color, count]) =>
+        `<span style="background:${color}22;color:${color};border:1px solid ${color}44;padding:3px 8px;border-radius:12px;font-size:11px;font-weight:600">${label}: ${count}</span>`
+    ).join('');
+}
+
+function toggleNucleiRaw() {
+    const content = document.getElementById('nucleiRawContent');
+    const toggle  = document.getElementById('nucleiRawToggle');
+    if (!content) return;
+    const visible = content.style.display !== 'none';
+    content.style.display = visible ? 'none' : 'block';
+    if (toggle) toggle.textContent = visible ? '[click to expand]' : '[click to collapse]';
+}
+
+// Auto-load nuclei stats when nuclei page is opened
+function onPageNucleiEnter() {
+    loadNucleiStats();
+}
+
+
 
 async function runSqlmap() {
     const targetEl  = document.getElementById('sqlmapTarget');
@@ -1292,32 +1453,101 @@ function renderFfufResults(container, data) {
 
 function renderNucleiResults(container, data) {
     const findings = data.findings || [];
+    const sevColors = {
+        CRITICAL: '#ef4444', HIGH: '#f97316', MEDIUM: '#f59e0b',
+        LOW: '#3b82f6', INFO: '#94a3b8'
+    };
+    const sevOrder = { CRITICAL:0, HIGH:1, MEDIUM:2, LOW:3, INFO:4 };
+
     if (findings.length === 0) {
-        container.innerHTML = `<div class="empty-state"><i class="fas fa-radiation fa-2x" style="color:var(--green)"></i><p style="color:var(--green)">No Nuclei template matches found</p></div>`;
+        container.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-radiation fa-2x" style="color:var(--green)"></i>
+                <p style="color:var(--green)">No Nuclei template matches found</p>
+                <small style="color:var(--text-muted)">Category: ${escapeHtml(data.category||'default')} | Target: ${escapeHtml(data.target||'')}</small>
+            </div>`;
         return;
     }
-    const sevColors = { CRITICAL:'var(--red)', HIGH:'#f97316', MEDIUM:'#f59e0b', LOW:'#3b82f6', INFO:'var(--text-muted)' };
-    container.innerHTML = `
-        <div style="margin-bottom:12px;font-size:12px;color:var(--text-muted)">
-            Nuclei found <strong style="color:var(--red)">${findings.length}</strong> vulnerability match(es)
+
+    // Sort by severity
+    const sorted = [...findings].sort((a,b) => (sevOrder[a.severity]||9) - (sevOrder[b.severity]||9));
+
+    // Group by severity
+    const groups = {};
+    for (const f of sorted) {
+        const sev = f.severity || 'INFO';
+        if (!groups[sev]) groups[sev] = [];
+        groups[sev].push(f);
+    }
+
+    const groupHtml = Object.entries(groups).map(([sev, items]) => `
+        <div style="margin-bottom:16px">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid rgba(255,255,255,0.05)">
+                <span style="background:${sevColors[sev]||'#888'}22;color:${sevColors[sev]||'#888'};border:1px solid ${sevColors[sev]||'#888'}44;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700">${sev}</span>
+                <span style="font-size:12px;color:var(--text-muted)">${items.length} finding${items.length>1?'s':''}</span>
+            </div>
+            ${items.map(f => {
+                const cveHtml = f.cve_id && f.cve_id.length > 0
+                    ? f.cve_id.map(cve => `<a href="https://nvd.nist.gov/vuln/detail/${escapeHtml(cve)}" target="_blank" style="color:#ef4444;font-size:10px;font-family:monospace;background:rgba(239,68,68,0.08);padding:1px 5px;border-radius:3px;text-decoration:none">${escapeHtml(cve)}</a>`).join(' ')
+                    : '';
+                const cvssHtml = f.cvss_score
+                    ? `<span style="background:rgba(249,115,22,0.1);color:#f97316;padding:1px 6px;border-radius:3px;font-size:10px;font-family:monospace">CVSS ${escapeHtml(f.cvss_score)}</span>`
+                    : '';
+                const cweHtml = f.cwe_id && f.cwe_id.length > 0
+                    ? f.cwe_id.slice(0,2).map(cwe => `<span style="font-size:10px;color:var(--text-muted);background:rgba(255,255,255,0.04);padding:1px 5px;border-radius:3px">${escapeHtml(cwe)}</span>`).join(' ')
+                    : '';
+                const refsHtml = f.references && f.references.length > 0
+                    ? `<div style="margin-top:5px">
+                        ${f.references.slice(0,3).map(ref => `<a href="${escapeHtml(ref)}" target="_blank" style="color:var(--accent);font-size:10px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(ref)}</a>`).join('')}
+                       </div>`
+                    : '';
+                const remHtml = f.remediation
+                    ? `<div style="margin-top:5px;padding:6px 8px;background:rgba(16,185,129,0.06);border-radius:5px;border-left:2px solid #10b981">
+                        <span style="font-size:10px;color:#10b981;font-weight:600">REMEDIATION: </span>
+                        <span style="font-size:10px;color:var(--text-secondary)">${escapeHtml(f.remediation.slice(0,200))}</span>
+                       </div>`
+                    : '';
+                const curlHtml = f.curl_command
+                    ? `<details style="margin-top:5px"><summary style="font-size:10px;color:var(--text-muted);cursor:pointer">PoC curl command</summary>
+                       <pre style="font-size:9px;background:rgba(0,0,0,0.2);padding:6px;border-radius:4px;overflow-x:auto;margin-top:4px;white-space:pre-wrap">${escapeHtml(f.curl_command)}</pre></details>`
+                    : '';
+                return `
+                <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-left:3px solid ${sevColors[sev]||'#888'};border-radius:8px;padding:12px;margin-bottom:8px">
+                    <div style="display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap">
+                        <div style="flex:1;min-width:200px">
+                            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px">
+                                <span style="font-weight:600;font-size:13px;color:var(--text-primary)">${escapeHtml(f.name||f.template||'Unknown')}</span>
+                                ${cveHtml}
+                                ${cvssHtml}
+                                ${cweHtml}
+                            </div>
+                            ${f.template ? `<div style="font-size:10px;font-family:monospace;color:var(--text-muted);margin-bottom:4px">template: ${escapeHtml(f.template)}</div>` : ''}
+                            ${f.description ? `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px">${escapeHtml(f.description.slice(0,300))}</div>` : ''}
+                            ${f.url ? `<div style="font-size:11px;font-family:monospace;background:rgba(255,255,255,0.04);padding:3px 8px;border-radius:4px;margin-bottom:4px">
+                                <a href="${escapeHtml(f.url)}" target="_blank" style="color:var(--accent)">${escapeHtml(f.url)}</a>
+                            </div>` : ''}
+                            ${f.tags ? `<div style="font-size:10px;color:var(--text-muted)">🏷️ ${escapeHtml(f.tags)}</div>` : ''}
+                            ${f.author ? `<div style="font-size:10px;color:var(--text-muted)">👤 ${escapeHtml(f.author)}</div>` : ''}
+                            ${refsHtml}
+                            ${remHtml}
+                            ${curlHtml}
+                        </div>
+                    </div>
+                </div>`;
+            }).join('')}
         </div>
-        ${findings.map(f => `
-            <div class="header-finding" style="margin-bottom:10px;border-left:3px solid ${sevColors[f.severity]||'#888'}">
-                <div class="header-finding-top">
-                    <span class="sev-badge ${f.severity}">${f.severity}</span>
-                    <span style="font-weight:600;font-size:13px;color:var(--text-primary)">${escapeHtml(f.name||f.template||'')}</span>
-                    ${f.template ? `<span style="font-size:10px;font-family:var(--mono);color:var(--text-muted)">${escapeHtml(f.template)}</span>` : ''}
-                </div>
-                <div class="header-finding-body" style="padding-top:6px">
-                    ${f.description ? `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px">${escapeHtml(f.description)}</div>` : ''}
-                    ${f.url ? `<div style="font-size:11px;font-family:var(--mono);background:rgba(255,255,255,0.04);padding:3px 8px;border-radius:4px">
-                        <a href="${escapeHtml(f.url)}" target="_blank" style="color:var(--accent)">${escapeHtml(f.url)}</a>
-                    </div>` : ''}
-                    ${f.tags ? `<div style="font-size:10px;color:var(--text-muted);margin-top:4px">Tags: ${escapeHtml(f.tags)}</div>` : ''}
-                </div>
-            </div>`).join('')}
+    `).join('');
+
+    container.innerHTML = `
+        <div style="margin-bottom:14px;font-size:12px;color:var(--text-muted)">
+            Nuclei found <strong style="color:var(--red)">${findings.length}</strong> vulnerability match(es) on
+            <strong style="color:var(--accent)">${escapeHtml(data.target||'')}</strong>
+            | Category: <strong>${escapeHtml(data.category||'default')}</strong>
+        </div>
+        ${groupHtml}
     `;
 }
+
 
 function renderWhatwebResults(container, data) {
     const techs = data.technologies || [];

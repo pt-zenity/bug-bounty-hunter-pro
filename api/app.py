@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Bug Bounty Hunter Pro - Backend API v2
+Bug Bounty Hunter Pro - Backend API v4.0 (Nuclei Full Templates)
 Real scanning engine with live results streaming
 Fixed: target sanitization, fingerprint false-positives, scan_list live counts,
        SSE stream stability, HTTP phase logging, tech error filtering
@@ -368,52 +368,355 @@ def run_ffuf(target, wordlist=None):
     return {"target": url, "findings": findings, "count": len(findings),
             "raw": (out or '')[:2000]}
 
-def run_nuclei(target, severity='medium,high,critical', templates='default-logins,exposed-panels,takeovers,misconfigurations'):
-    """Real nuclei vulnerability scan."""
-    url = base_url(target)
-    # Update templates once (silently if already up to date)
-    _run_cmd(['nuclei', '-update-templates', '-silent'], timeout=30)
+NUCLEI_TEMPLATES_DIR = os.path.expanduser('~/.config/nuclei/templates')
 
-    out, err, rc = _run_cmd([
-        'nuclei', '-u', url,
-        '-severity', severity,
-        '-tags', 'cve,exposure,misconfig',
-        '-rl', '10',  # rate limit requests/sec
-        '-c', '10',   # concurrency
-        '-timeout', '5',
-        '-duc',       # disable update check
-        '-silent',
-        '-j',         # JSON output
-        '-no-color',
-        '-time-limit', '120'
-    ], timeout=150)
+# ─── Full Nuclei Template Category Map ───────────────────────────────────────
+NUCLEI_CATEGORIES = {
+    "cves": {
+        "label": "CVEs",
+        "description": "Known CVE exploits and detections (3800+ templates)",
+        "path": "http/cves",
+        "icon": "fa-skull-crossbones",
+        "color": "#ef4444",
+        "tags": ["cve"],
+        "default_severity": "medium,high,critical"
+    },
+    "misconfiguration": {
+        "label": "Misconfiguration",
+        "description": "Security misconfigurations (900+ templates)",
+        "path": "http/misconfiguration",
+        "icon": "fa-cogs",
+        "color": "#f97316",
+        "tags": ["misconfig"],
+        "default_severity": "medium,high,critical"
+    },
+    "exposed-panels": {
+        "label": "Exposed Panels",
+        "description": "Admin/login panels exposed to internet (1300+ templates)",
+        "path": "http/exposed-panels",
+        "icon": "fa-door-open",
+        "color": "#f59e0b",
+        "tags": ["panel"],
+        "default_severity": "info,low,medium,high,critical"
+    },
+    "takeovers": {
+        "label": "Subdomain Takeovers",
+        "description": "Subdomain takeover detection (70+ templates)",
+        "path": "http/takeovers",
+        "icon": "fa-flag",
+        "color": "#ef4444",
+        "tags": ["takeover"],
+        "default_severity": "high,critical"
+    },
+    "default-logins": {
+        "label": "Default Credentials",
+        "description": "Default/weak login credentials (270+ templates)",
+        "path": "http/default-logins",
+        "icon": "fa-key",
+        "color": "#ef4444",
+        "tags": ["default-login"],
+        "default_severity": "medium,high,critical"
+    },
+    "technologies": {
+        "label": "Technology Detection",
+        "description": "Technology fingerprinting (860+ templates)",
+        "path": "http/technologies",
+        "icon": "fa-microchip",
+        "color": "#6366f1",
+        "tags": ["tech"],
+        "default_severity": "info,low,medium,high,critical"
+    },
+    "vulnerabilities": {
+        "label": "Vulnerabilities",
+        "description": "Generic vulnerability checks (930+ templates)",
+        "path": "http/vulnerabilities",
+        "icon": "fa-radiation",
+        "color": "#ef4444",
+        "tags": ["vuln"],
+        "default_severity": "medium,high,critical"
+    },
+    "exposures": {
+        "label": "Exposures",
+        "description": "Sensitive file/data exposures (680+ templates)",
+        "path": "http/exposures",
+        "icon": "fa-eye",
+        "color": "#f59e0b",
+        "tags": ["exposure"],
+        "default_severity": "low,medium,high,critical"
+    },
+    "fuzzing": {
+        "label": "Fuzzing",
+        "description": "Parameter fuzzing templates",
+        "path": "http/fuzzing",
+        "icon": "fa-random",
+        "color": "#8b5cf6",
+        "tags": ["fuzz"],
+        "default_severity": "medium,high,critical"
+    },
+    "cnvd": {
+        "label": "CNVD (China NVD)",
+        "description": "Chinese National Vulnerability Database",
+        "path": "http/cnvd",
+        "icon": "fa-database",
+        "color": "#ec4899",
+        "tags": ["cnvd"],
+        "default_severity": "medium,high,critical"
+    },
+    "iot": {
+        "label": "IoT Devices",
+        "description": "IoT device vulnerability checks",
+        "path": "http/iot",
+        "icon": "fa-network-wired",
+        "color": "#14b8a6",
+        "tags": ["iot"],
+        "default_severity": "medium,high,critical"
+    },
+    "dns": {
+        "label": "DNS Checks",
+        "description": "DNS-level security checks (30+ templates)",
+        "path": "dns",
+        "icon": "fa-server",
+        "color": "#3b82f6",
+        "tags": ["dns"],
+        "default_severity": "info,low,medium,high,critical"
+    },
+    "ssl": {
+        "label": "SSL/TLS",
+        "description": "SSL/TLS certificate and configuration checks (38 templates)",
+        "path": "ssl",
+        "icon": "fa-lock",
+        "color": "#10b981",
+        "tags": ["ssl"],
+        "default_severity": "info,low,medium,high,critical"
+    },
+    "network": {
+        "label": "Network",
+        "description": "Network-level service checks (278+ templates)",
+        "path": "network",
+        "icon": "fa-project-diagram",
+        "color": "#06b6d4",
+        "tags": ["network"],
+        "default_severity": "medium,high,critical"
+    },
+    "workflows": {
+        "label": "Workflows",
+        "description": "Multi-step attack workflows (200+ templates)",
+        "path": "workflows",
+        "icon": "fa-sitemap",
+        "color": "#a78bfa",
+        "tags": ["workflow"],
+        "default_severity": "medium,high,critical"
+    },
+    "credential-stuffing": {
+        "label": "Credential Stuffing",
+        "description": "Credential stuffing attack templates",
+        "path": "http/credential-stuffing",
+        "icon": "fa-user-secret",
+        "color": "#f43f5e",
+        "tags": ["credential"],
+        "default_severity": "high,critical"
+    },
+    "osint": {
+        "label": "OSINT",
+        "description": "Open Source Intelligence gathering",
+        "path": "http/osint",
+        "icon": "fa-search",
+        "color": "#64748b",
+        "tags": ["osint"],
+        "default_severity": "info,low,medium,high,critical"
+    },
+    "miscellaneous": {
+        "label": "Miscellaneous",
+        "description": "Various other security checks",
+        "path": "http/miscellaneous",
+        "icon": "fa-ellipsis-h",
+        "color": "#94a3b8",
+        "tags": ["misc"],
+        "default_severity": "medium,high,critical"
+    }
+}
 
+# ─── Severity Presets ─────────────────────────────────────────────────────────
+NUCLEI_SEVERITY_PRESETS = {
+    "critical": {"label": "Critical Only", "value": "critical"},
+    "high_critical": {"label": "High + Critical", "value": "high,critical"},
+    "medium_plus": {"label": "Medium + High + Critical", "value": "medium,high,critical"},
+    "low_plus": {"label": "Low and above", "value": "low,medium,high,critical"},
+    "all": {"label": "All Severities (incl. Info)", "value": "info,low,medium,high,critical"},
+}
+
+def _parse_nuclei_output(raw, url):
+    """Parse nuclei JSON output into structured findings list."""
     findings = []
-    raw = out + err
+    sev_map = {
+        'critical': 'CRITICAL', 'high': 'HIGH', 'medium': 'MEDIUM',
+        'low': 'LOW', 'info': 'INFO', 'unknown': 'INFO'
+    }
     for line in raw.splitlines():
         line = line.strip()
-        if not line:
+        if not line or line.startswith('['):
             continue
         try:
             item = json.loads(line)
-            sev_map = {'critical': 'CRITICAL', 'high': 'HIGH', 'medium': 'MEDIUM',
-                       'low': 'LOW', 'info': 'INFO', 'unknown': 'INFO'}
-            sev = sev_map.get(item.get('info', {}).get('severity', 'info').lower(), 'INFO')
+            info = item.get('info', {})
+            sev = sev_map.get(info.get('severity', 'info').lower(), 'INFO')
+            # Extract remediation/reference
+            remediation = info.get('remediation', '')
+            references = info.get('reference', [])
+            if isinstance(references, str):
+                references = [references]
+            # Extract classification
+            classification = item.get('info', {}).get('classification', {})
+            cvss_score = classification.get('cvss-score', '')
+            cvss_metrics = classification.get('cvss-metrics', '')
+            cve_id = classification.get('cve-id', [])
+            if isinstance(cve_id, str):
+                cve_id = [cve_id]
+            cwe_id = classification.get('cwe-id', [])
+            if isinstance(cwe_id, str):
+                cwe_id = [cwe_id]
+
             findings.append({
                 "type": "Nuclei Finding",
                 "severity": sev,
                 "template": item.get('template-id', ''),
-                "name": item.get('info', {}).get('name', ''),
+                "template_path": item.get('template-path', ''),
+                "name": info.get('name', ''),
                 "url": item.get('matched-at', url),
-                "description": item.get('info', {}).get('description', ''),
-                "tags": ', '.join(item.get('info', {}).get('tags', [])),
-                "source": "nuclei"
+                "description": info.get('description', ''),
+                "tags": ', '.join(info.get('tags', [])),
+                "author": ', '.join(info.get('author', [])) if isinstance(info.get('author', []), list) else info.get('author', ''),
+                "remediation": remediation,
+                "references": references[:3],  # max 3 refs
+                "cvss_score": str(cvss_score) if cvss_score else '',
+                "cvss_metrics": cvss_metrics,
+                "cve_id": cve_id,
+                "cwe_id": cwe_id,
+                "extracted_results": item.get('extracted-results', []),
+                "curl_command": item.get('curl-command', ''),
+                "source": "nuclei",
+                "timestamp": item.get('timestamp', '')
             })
-        except json.JSONDecodeError:
-            # Non-JSON output line — skip
+        except (json.JSONDecodeError, KeyError):
             pass
-    return {"target": url, "findings": findings, "count": len(findings),
-            "raw": raw[:3000]}
+    return findings
+
+def run_nuclei(target, severity='medium,high,critical', category=None,
+               templates=None, tags=None, custom_args=None):
+    """Full nuclei vulnerability scan with category/template/tag support."""
+    url = base_url(target)
+    cmd = [
+        'nuclei', '-u', url,
+        '-severity', severity,
+        '-rl', '15',       # rate limit
+        '-c', '15',        # concurrency
+        '-timeout', '8',
+        '-duc',            # disable update check
+        '-silent',
+        '-j',              # JSON output
+        '-no-color',
+        '-time-limit', '180'
+    ]
+
+    # Template selection priority: category > templates > tags > default
+    if category and category in NUCLEI_CATEGORIES:
+        cat = NUCLEI_CATEGORIES[category]
+        tpl_path = os.path.join(NUCLEI_TEMPLATES_DIR, cat['path'])
+        if os.path.isdir(tpl_path):
+            cmd += ['-t', tpl_path]
+        else:
+            cmd += ['-tags', ','.join(cat['tags'])]
+    elif templates:
+        # templates can be comma-separated category paths or template IDs
+        tpl_list = [t.strip() for t in templates.split(',') if t.strip()]
+        resolved = []
+        for t in tpl_list:
+            full_path = os.path.join(NUCLEI_TEMPLATES_DIR, t)
+            if os.path.isdir(full_path) or os.path.isfile(full_path):
+                resolved.append(full_path)
+            else:
+                resolved.append(t)
+        cmd += ['-t', ','.join(resolved)]
+    elif tags:
+        cmd += ['-tags', tags]
+    else:
+        # Default: scan most impactful categories
+        default_dirs = [
+            os.path.join(NUCLEI_TEMPLATES_DIR, 'http/cves'),
+            os.path.join(NUCLEI_TEMPLATES_DIR, 'http/misconfiguration'),
+            os.path.join(NUCLEI_TEMPLATES_DIR, 'http/exposed-panels'),
+            os.path.join(NUCLEI_TEMPLATES_DIR, 'http/takeovers'),
+            os.path.join(NUCLEI_TEMPLATES_DIR, 'http/default-logins'),
+            os.path.join(NUCLEI_TEMPLATES_DIR, 'http/vulnerabilities'),
+            os.path.join(NUCLEI_TEMPLATES_DIR, 'http/exposures'),
+        ]
+        existing = [d for d in default_dirs if os.path.isdir(d)]
+        if existing:
+            cmd += ['-t', ','.join(existing)]
+
+    if custom_args:
+        cmd += custom_args
+
+    out, err, rc = _run_cmd(cmd, timeout=210)
+    raw = (out or '') + (err or '')
+    findings = _parse_nuclei_output(raw, url)
+
+    # Build severity summary
+    sev_summary = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "INFO": 0}
+    for f in findings:
+        sev_summary[f.get("severity", "INFO")] = sev_summary.get(f.get("severity", "INFO"), 0) + 1
+
+    return {
+        "target": url,
+        "findings": findings,
+        "count": len(findings),
+        "severity_summary": sev_summary,
+        "category": category or "default",
+        "raw": raw[:5000]
+    }
+
+def nuclei_scan_category(target, category):
+    """Scan a specific nuclei template category."""
+    if category not in NUCLEI_CATEGORIES:
+        return {"error": f"Unknown category: {category}", "findings": [], "count": 0}
+    cat = NUCLEI_CATEGORIES[category]
+    return run_nuclei(target, severity=cat['default_severity'], category=category)
+
+def get_nuclei_template_stats():
+    """Get real-time template statistics from the templates directory."""
+    stats = {
+        "total": 0,
+        "categories": {},
+        "templates_dir": NUCLEI_TEMPLATES_DIR,
+        "available": os.path.isdir(NUCLEI_TEMPLATES_DIR)
+    }
+    if not stats["available"]:
+        return stats
+
+    for cat_id, cat_info in NUCLEI_CATEGORIES.items():
+        tpl_path = os.path.join(NUCLEI_TEMPLATES_DIR, cat_info['path'])
+        count = 0
+        if os.path.isdir(tpl_path):
+            try:
+                result = subprocess.run(
+                    ['find', tpl_path, '-name', '*.yaml', '-type', 'f'],
+                    capture_output=True, text=True, timeout=10
+                )
+                count = len(result.stdout.strip().splitlines())
+            except Exception:
+                count = 0
+        stats["categories"][cat_id] = {
+            "label": cat_info["label"],
+            "description": cat_info["description"],
+            "count": count,
+            "icon": cat_info["icon"],
+            "color": cat_info["color"],
+            "path": cat_info["path"],
+            "available": count > 0
+        }
+        stats["total"] += count
+
+    return stats
 
 # ─── New Tool Wrappers ────────────────────────────────────────────────────────
 
@@ -1757,16 +2060,22 @@ def run_full_scan(scan_id, raw_target, scan_type):
 
             # nuclei
             active_scans[scan_id]["phase"] = "Nuclei Scan"
-            add_log(scan_id, "☢️  Phase 9d: Nuclei Template Scan", "info")
-            nuclei_res = run_nuclei(target)
+            add_log(scan_id, "☢️  Phase 9d: Nuclei Full Template Scan (CVEs + Misconfigs + Panels + Takeovers + Default-Logins + Vulns + Exposures)", "info")
+            nuclei_res = run_nuclei(target, severity='medium,high,critical')
             active_scans[scan_id]["nuclei"] = nuclei_res
             if nuclei_res["findings"]:
-                add_log(scan_id, f"   🚨 Nuclei: {len(nuclei_res['findings'])} finding(s)!", "error")
+                sev_sum = nuclei_res.get("severity_summary", {})
+                add_log(scan_id, f"   🚨 Nuclei: {len(nuclei_res['findings'])} finding(s)! "
+                        f"[CRIT:{sev_sum.get('CRITICAL',0)} HIGH:{sev_sum.get('HIGH',0)} "
+                        f"MED:{sev_sum.get('MEDIUM',0)} LOW:{sev_sum.get('LOW',0)}]", "error")
                 for f in nuclei_res["findings"]:
                     add_finding(scan_id, f)
-                    add_log(scan_id, f"   → [{f['severity']}] {f.get('name','')}: {f['description'][:80]}", "warning")
+                    desc = f.get('description') or f.get('name') or ''
+                    cve_str = f" CVE:{','.join(f['cve_id'])}" if f.get('cve_id') else ''
+                    cvss_str = f" CVSS:{f['cvss_score']}" if f.get('cvss_score') else ''
+                    add_log(scan_id, f"   → [{f['severity']}] {f.get('name','')}{cve_str}{cvss_str}: {desc[:80]}", "warning")
             else:
-                add_log(scan_id, "   ✅ Nuclei: No template matches", "success")
+                add_log(scan_id, "   ✅ Nuclei: No template matches found", "success")
 
             # dalfox XSS deep scan
             active_scans[scan_id]["phase"] = "Dalfox XSS"
@@ -1868,8 +2177,25 @@ def api_health():
         result = subprocess.run(['which', t], capture_output=True, env=env)
         tools[t] = result.returncode == 0
     installed = sum(1 for v in tools.values() if v)
-    return jsonify({"status":"ok","version":"3.0.0","tools":tools,
-                    "installed_count": installed, "total_count": len(tool_list)})
+    # Count nuclei templates
+    nuclei_tpl_count = 0
+    tpl_dir = os.path.expanduser('~/.config/nuclei/templates')
+    if os.path.isdir(tpl_dir):
+        try:
+            r = subprocess.run(['find', tpl_dir, '-name', '*.yaml', '-type', 'f'],
+                               capture_output=True, text=True, timeout=10)
+            nuclei_tpl_count = len(r.stdout.strip().splitlines())
+        except Exception:
+            pass
+    return jsonify({
+        "status": "ok",
+        "version": "4.0.0",
+        "tools": tools,
+        "installed_count": installed,
+        "total_count": len(tool_list),
+        "nuclei_templates": nuclei_tpl_count,
+        "nuclei_categories": len(NUCLEI_CATEGORIES)
+    })
 
 @app.route('/api/scan/start', methods=['POST'])
 def scan_start():
@@ -2098,10 +2424,50 @@ def tool_ffuf():
 
 @app.route('/api/tools/nuclei', methods=['POST'])
 def tool_nuclei():
-    raw = (request.json or {}).get('target','').strip()
+    data = request.json or {}
+    raw = data.get('target','').strip()
     if not raw: return jsonify({"error":"Target required"}), 400
-    sev = (request.json or {}).get('severity', 'medium,high,critical')
-    return jsonify(run_nuclei(raw, severity=sev))
+    sev      = data.get('severity', 'medium,high,critical')
+    category = data.get('category', None)
+    tags     = data.get('tags', None)
+    templates= data.get('templates', None)
+    return jsonify(run_nuclei(raw, severity=sev, category=category, tags=tags, templates=templates))
+
+@app.route('/api/tools/nuclei/category', methods=['POST'])
+def tool_nuclei_category():
+    """Scan with a specific nuclei template category."""
+    data = request.json or {}
+    raw      = data.get('target','').strip()
+    category = data.get('category','').strip()
+    if not raw:      return jsonify({"error":"Target required"}), 400
+    if not category: return jsonify({"error":"Category required"}), 400
+    return jsonify(nuclei_scan_category(raw, category))
+
+@app.route('/api/tools/nuclei/templates/stats', methods=['GET'])
+def nuclei_template_stats():
+    """Return template statistics per category."""
+    return jsonify(get_nuclei_template_stats())
+
+@app.route('/api/tools/nuclei/categories', methods=['GET'])
+def nuclei_categories():
+    """Return list of available nuclei template categories."""
+    cats = {}
+    for cat_id, cat_info in NUCLEI_CATEGORIES.items():
+        tpl_path = os.path.join(NUCLEI_TEMPLATES_DIR, cat_info['path'])
+        cats[cat_id] = {
+            "label": cat_info["label"],
+            "description": cat_info["description"],
+            "icon": cat_info["icon"],
+            "color": cat_info["color"],
+            "default_severity": cat_info["default_severity"],
+            "available": os.path.isdir(tpl_path)
+        }
+    return jsonify({"categories": cats, "severity_presets": NUCLEI_SEVERITY_PRESETS})
+
+@app.route('/api/tools/nuclei/severities', methods=['GET'])
+def nuclei_severities():
+    """Return severity presets."""
+    return jsonify(NUCLEI_SEVERITY_PRESETS)
 
 @app.route('/api/tools/whatweb', methods=['POST'])
 def tool_whatweb():
