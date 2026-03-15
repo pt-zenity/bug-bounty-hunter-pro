@@ -243,6 +243,7 @@ async function startFullScan() {
     clearConsole();
     document.getElementById('liveFindings').innerHTML = '';
     document.getElementById('liveFindingsCount').textContent = '0';
+    window._liveFindings = [];  // reset live findings array for modal nav
     
     const btn = document.getElementById('startScanBtn');
     btn.disabled = true;
@@ -328,27 +329,41 @@ function appendConsoleLine(log) {
 }
 
 function addLiveFinding(finding) {
-    const list = document.getElementById('liveFindings');
+    const list  = document.getElementById('liveFindings');
     const count = document.getElementById('liveFindingsCount');
-    
+
+    // Store in live findings array for modal navigation
+    if (!window._liveFindings) window._liveFindings = [];
+    const idx = window._liveFindings.length;
+    window._liveFindings.push(finding);
+
+    const sev = finding.severity || 'INFO';
     const item = document.createElement('div');
-    item.className = `finding-item ${finding.severity || 'INFO'}`;
+    item.className = `finding-row ${sev}`;
+    item.style.cssText = 'margin-bottom:4px;cursor:pointer';
+    item.title = 'Click for full details';
     item.innerHTML = `
-        <span class="sev-badge ${finding.severity || 'INFO'}">${finding.severity || 'INFO'}</span>
-        <span>${escapeHtml(finding.type || 'Finding')}: ${escapeHtml(finding.description || '').substring(0, 80)}</span>
+        <div style="padding-top:1px">
+            <span class="sev-badge ${sev}" style="font-size:10px;padding:2px 7px;white-space:nowrap">${sev}</span>
+        </div>
+        <div class="finding-row-main">
+            <div class="finding-row-title" style="font-size:12px">${escapeHtml(finding.type || 'Finding')}</div>
+            <div class="finding-row-desc">${escapeHtml((finding.description || '').substring(0, 100))}</div>
+        </div>
+        <div class="finding-row-arrow" style="font-size:11px"><i class="fas fa-chevron-right"></i></div>
     `;
-    
+    item.onclick = () => {
+        window._modalFindings = window._liveFindings;
+        openFindingModal(idx);
+    };
+
     list.appendChild(item);
     list.scrollTop = list.scrollHeight;
-    
+
     const num = parseInt(count.textContent) + 1;
     count.textContent = num;
-    
-    // Update global stats
-    const sev = finding.severity || 'INFO';
-    if (statsTotal[sev] !== undefined) {
-        statsTotal[sev]++;
-    }
+
+    if (statsTotal[sev] !== undefined) statsTotal[sev]++;
     updateStatsDisplay();
 }
 
@@ -581,87 +596,153 @@ async function viewScanDetail(scanId) {
         const resp = await fetch(`${API_BASE}/scan/${scanId}`);
         const scan = await resp.json();
 
-        window._currentViewScanId = scanId;  // store for export
+        window._currentViewScanId = scanId;
 
-        const panel = document.getElementById('scanDetailPanel');
+        const panel   = document.getElementById('scanDetailPanel');
         const content = document.getElementById('scanDetailContent');
-        const title = document.getElementById('detailTitle');
+        const title   = document.getElementById('detailTitle');
 
-        title.textContent = `Scan: ${scan.target} (${scan.status})`;
+        title.textContent = `${scan.target}  ·  ${scan.status.toUpperCase()}`;
 
-        // Render findings
         const findings = scan.findings || [];
-        const dns = scan.dns || [];
-        const ports = scan.ports || [];
-        const techs = scan.technologies || [];
-
+        const dns      = scan.dns || [];
+        const ports    = scan.ports || [];
+        const techs    = scan.technologies || [];
+        const subs     = scan.subdomains || [];
         const isCompleted = scan.status === 'completed';
-        const exportBarHtml = isCompleted ? `
-            <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;flex-wrap:wrap;gap:8px">
-                <span style="font-size:11px;color:var(--text-muted)"><i class="fas fa-download"></i> Export report:</span>
-                <button onclick="downloadExport('${scanId}','txt')" style="padding:5px 12px;background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.25);border-radius:5px;color:#818cf8;font-size:11px;cursor:pointer;font-weight:600"><i class="fas fa-file-alt"></i> TXT</button>
-                <button onclick="downloadExport('${scanId}','html')" style="padding:5px 12px;background:rgba(6,182,212,0.12);border:1px solid rgba(6,182,212,0.25);border-radius:5px;color:#06b6d4;font-size:11px;cursor:pointer;font-weight:600"><i class="fas fa-file-code"></i> HTML</button>
-                <button onclick="downloadExport('${scanId}','pdf')" style="padding:5px 12px;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.25);border-radius:5px;color:#ef4444;font-size:11px;cursor:pointer;font-weight:600"><i class="fas fa-file-pdf"></i> PDF</button>
-                <button onclick="exportScanJson('${scanId}')" style="padding:5px 12px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.25);border-radius:5px;color:#f59e0b;font-size:11px;cursor:pointer;font-weight:600"><i class="fas fa-code"></i> JSON</button>
-                <button onclick="exportScanMarkdown('${scanId}')" style="padding:5px 12px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:5px;color:var(--text-secondary);font-size:11px;cursor:pointer;font-weight:600"><i class="fas fa-hashtag"></i> MD</button>
-            </div>` : '';
+
+        // severity counts
+        const sc = {CRITICAL:0,HIGH:0,MEDIUM:0,LOW:0,INFO:0};
+        findings.forEach(f => { sc[f.severity] = (sc[f.severity]||0)+1; });
+
+        // Store findings globally for the modal navigator
+        window._modalFindings = findings;
 
         content.innerHTML = `
-            ${exportBarHtml}
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:20px">
-                <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;padding:14px;text-align:center">
-                    <div style="font-size:24px;font-weight:800;color:var(--accent)">${findings.length}</div>
-                    <div style="font-size:11px;color:var(--text-muted)">TOTAL FINDINGS</div>
-                </div>
-                <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;padding:14px;text-align:center">
-                    <div style="font-size:24px;font-weight:800;color:var(--red)">${findings.filter(f=>f.severity==='CRITICAL'||f.severity==='HIGH').length}</div>
-                    <div style="font-size:11px;color:var(--text-muted)">CRITICAL/HIGH</div>
-                </div>
-                <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;padding:14px;text-align:center">
-                    <div style="font-size:24px;font-weight:800;color:var(--green)">${dns.length}</div>
-                    <div style="font-size:11px;color:var(--text-muted)">DNS RECORDS</div>
-                </div>
+            <!-- ── Summary stats ── -->
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:10px;margin-bottom:18px">
+                ${[
+                    ['TOTAL',    findings.length,                               'var(--accent)',  'fa-bug'],
+                    ['CRITICAL', sc.CRITICAL,                                   'var(--red)',     'fa-skull-crossbones'],
+                    ['HIGH',     sc.HIGH,                                       'var(--orange)',  'fa-exclamation-triangle'],
+                    ['MEDIUM',   sc.MEDIUM,                                     'var(--yellow)',  'fa-exclamation-circle'],
+                    ['LOW',      sc.LOW,                                        'var(--green)',   'fa-info-circle'],
+                    ['INFO',     sc.INFO,                                       'var(--cyan)',    'fa-info'],
+                ].map(([lbl, val, col, ico]) => `
+                    <div style="background:var(--bg-secondary);border:1px solid rgba(255,255,255,0.06);
+                                border-radius:10px;padding:12px;text-align:center;cursor:${val>0?'pointer':'default'}"
+                         onclick="${val>0 ? `filterDetailFindings('${lbl}')` : ''}">
+                        <i class="fas ${ico}" style="font-size:13px;color:${col};margin-bottom:4px"></i>
+                        <div style="font-size:22px;font-weight:800;color:${col}">${val}</div>
+                        <div style="font-size:9px;color:var(--text-muted);letter-spacing:1px">${lbl}</div>
+                    </div>`).join('')}
             </div>
 
+            <!-- ── Export bar ── -->
+            ${isCompleted ? `
+            <div style="background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.18);
+                        border-radius:8px;padding:10px 14px;margin-bottom:16px;
+                        display:flex;align-items:center;flex-wrap:wrap;gap:8px">
+                <i class="fas fa-download" style="color:var(--green);font-size:13px"></i>
+                <span style="font-size:11px;color:var(--text-muted)">Export:</span>
+                <button onclick="downloadExport('${scanId}','txt')"  style="padding:5px 12px;background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.25);border-radius:5px;color:#818cf8;font-size:11px;cursor:pointer;font-weight:600"><i class="fas fa-file-alt"></i> TXT</button>
+                <button onclick="downloadExport('${scanId}','html')" style="padding:5px 12px;background:rgba(6,182,212,0.12);border:1px solid rgba(6,182,212,0.25);border-radius:5px;color:#06b6d4;font-size:11px;cursor:pointer;font-weight:600"><i class="fas fa-file-code"></i> HTML</button>
+                <button onclick="downloadExport('${scanId}','pdf')"  style="padding:5px 12px;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.25);border-radius:5px;color:#ef4444;font-size:11px;cursor:pointer;font-weight:600"><i class="fas fa-file-pdf"></i> PDF</button>
+                <button onclick="exportScanJson('${scanId}')"        style="padding:5px 12px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.25);border-radius:5px;color:#f59e0b;font-size:11px;cursor:pointer;font-weight:600"><i class="fas fa-code"></i> JSON</button>
+                <button onclick="exportScanMarkdown('${scanId}')"    style="padding:5px 12px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:5px;color:var(--text-secondary);font-size:11px;cursor:pointer;font-weight:600"><i class="fas fa-hashtag"></i> MD</button>
+            </div>` : ''}
+
+            <!-- ── Findings list ── -->
             ${findings.length > 0 ? `
-                <h3 style="font-size:14px;margin-bottom:12px;color:var(--text-secondary)"><i class="fas fa-bug"></i> Findings (${findings.length})</h3>
-                ${findings.map(f => `
-                    <div class="report-finding-item">
-                        <div class="report-finding-header">
-                            <span class="sev-badge ${f.severity}">${f.severity}</span>
-                            <span class="report-finding-title">${escapeHtml(f.type || 'Finding')}</span>
-                        </div>
-                        <div class="report-finding-desc">${escapeHtml(f.description || '')}</div>
-                        ${f.poc ? `<div class="report-finding-poc">${escapeHtml(f.poc)}</div>` : ''}
-                        ${f.remediation ? `<div class="report-finding-rem">${escapeHtml(f.remediation)}</div>` : ''}
-                    </div>
-                `).join('')}
+            <div style="margin-bottom:20px">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+                    <h3 style="font-size:14px;color:var(--text-secondary);margin:0">
+                        <i class="fas fa-bug" style="margin-right:6px"></i>Findings (${findings.length})
+                    </h3>
+                    <span style="font-size:11px;color:var(--text-muted)">Click any row for full details</span>
+                </div>
+
+                <!-- Filter bar -->
+                <div class="finding-filter-bar" id="detailFilterBar">
+                    <span style="font-size:10px;color:var(--text-muted);font-weight:600;letter-spacing:1px">FILTER:</span>
+                    <button class="finding-filter-btn active" data-sev="ALL"
+                        onclick="filterDetailFindings('ALL')">All (${findings.length})</button>
+                    ${sc.CRITICAL ? `<button class="finding-filter-btn CRITICAL" data-sev="CRITICAL"
+                        onclick="filterDetailFindings('CRITICAL')">🔴 Critical (${sc.CRITICAL})</button>` : ''}
+                    ${sc.HIGH ? `<button class="finding-filter-btn HIGH" data-sev="HIGH"
+                        onclick="filterDetailFindings('HIGH')">🟠 High (${sc.HIGH})</button>` : ''}
+                    ${sc.MEDIUM ? `<button class="finding-filter-btn MEDIUM" data-sev="MEDIUM"
+                        onclick="filterDetailFindings('MEDIUM')">🟡 Medium (${sc.MEDIUM})</button>` : ''}
+                    ${sc.LOW ? `<button class="finding-filter-btn LOW" data-sev="LOW"
+                        onclick="filterDetailFindings('LOW')">🟢 Low (${sc.LOW})</button>` : ''}
+                    ${sc.INFO ? `<button class="finding-filter-btn INFO" data-sev="INFO"
+                        onclick="filterDetailFindings('INFO')">🔵 Info (${sc.INFO})</button>` : ''}
+                </div>
+
+                <!-- Findings rows -->
+                <div id="detailFindingsList">
+                    ${findings.map((f, idx) => buildFindingRow(f, idx)).join('')}
+                </div>
+            </div>
             ` : '<div class="empty-state"><i class="fas fa-shield-alt fa-2x"></i><p>No findings recorded</p></div>'}
 
+            <!-- ── Technologies ── -->
+            ${techs.length > 0 ? `
+            <div style="margin-bottom:18px">
+                <h3 style="font-size:13px;color:var(--text-secondary);margin:0 0 8px">
+                    <i class="fas fa-layer-group" style="margin-right:6px"></i>Technologies Detected
+                </h3>
+                <div style="display:flex;flex-wrap:wrap;gap:6px">
+                    ${techs.map(t => `<span style="padding:4px 10px;background:rgba(99,102,241,0.1);
+                        border:1px solid rgba(99,102,241,0.2);border-radius:20px;
+                        font-size:11px;color:#818cf8">${escapeHtml(t)}</span>`).join('')}
+                </div>
+            </div>` : ''}
+
+            <!-- ── Subdomains ── -->
+            ${subs.length > 0 ? `
+            <div style="margin-bottom:18px">
+                <h3 style="font-size:13px;color:var(--text-secondary);margin:0 0 8px">
+                    <i class="fas fa-sitemap" style="margin-right:6px"></i>Subdomains (${subs.length})
+                </h3>
+                <div style="display:flex;flex-wrap:wrap;gap:5px">
+                    ${subs.map(s => `<span style="font-family:var(--mono);padding:3px 9px;
+                        background:rgba(6,182,212,0.08);border:1px solid rgba(6,182,212,0.15);
+                        border-radius:4px;font-size:11px;color:var(--cyan)">${escapeHtml(s)}</span>`).join('')}
+                </div>
+            </div>` : ''}
+
+            <!-- ── DNS Records ── -->
             ${dns.length > 0 ? `
-                <h3 style="font-size:14px;margin:20px 0 12px;color:var(--text-secondary)"><i class="fas fa-network-wired"></i> DNS Records</h3>
+            <div style="margin-bottom:18px">
+                <h3 style="font-size:13px;color:var(--text-secondary);margin:0 0 8px">
+                    <i class="fas fa-network-wired" style="margin-right:6px"></i>DNS Records
+                </h3>
                 ${dns.map(r => `
                     <div class="dns-record">
-                        <span class="dns-type">${r.type}</span>
+                        <span class="dns-type">${escapeHtml(r.type)}</span>
                         <span class="dns-value">${escapeHtml(r.value)}</span>
-                    </div>
-                `).join('')}
-            ` : ''}
+                    </div>`).join('')}
+            </div>` : ''}
 
+            <!-- ── Open Ports ── -->
             ${ports.length > 0 ? `
-                <h3 style="font-size:14px;margin:20px 0 12px;color:var(--text-secondary)"><i class="fas fa-plug"></i> Open Ports</h3>
+            <div style="margin-bottom:18px">
+                <h3 style="font-size:13px;color:var(--text-secondary);margin:0 0 8px">
+                    <i class="fas fa-plug" style="margin-right:6px"></i>Open Ports (${ports.length})
+                </h3>
                 <table class="port-table">
                     <thead><tr><th>Port</th><th>State</th><th>Service</th><th>Banner</th></tr></thead>
                     <tbody>${ports.map(p => `
                         <tr>
                             <td class="port-num">${p.port}</td>
                             <td class="port-open">OPEN</td>
-                            <td><span class="service-tag">${p.service}</span></td>
-                            <td class="banner-text">${escapeHtml(p.banner || '')}</td>
-                        </tr>
-                    `).join('')}</tbody>
+                            <td><span class="service-tag">${escapeHtml(p.service||'')}</span></td>
+                            <td class="banner-text">${escapeHtml(p.banner||'')}</td>
+                        </tr>`).join('')}
+                    </tbody>
                 </table>
-            ` : ''}
+            </div>` : ''}
         `;
 
         panel.style.display = 'block';
@@ -672,9 +753,237 @@ async function viewScanDetail(scanId) {
     }
 }
 
+/** Build a single clickable finding row for the scan detail panel */
+function buildFindingRow(f, idx) {
+    const sev  = f.severity || 'INFO';
+    const cvss = f.cvss?.score != null ? `CVSS ${f.cvss.score}` : '';
+    const id   = f.id || `#${idx+1}`;
+    const hasPoc = f.poc && f.poc.trim();
+    const hasRem = f.remediation && f.remediation.trim();
+    return `
+    <div class="finding-row ${sev}" data-sev="${sev}" onclick="openFindingModal(${idx})">
+        <div style="padding-top:2px">
+            <span class="sev-badge ${sev}" style="font-size:10px;padding:3px 8px;white-space:nowrap">${sev}</span>
+        </div>
+        <div class="finding-row-main">
+            <div class="finding-row-title">${escapeHtml(f.type || 'Finding')}</div>
+            <div class="finding-row-desc">${escapeHtml(f.description || '')}</div>
+            <div class="finding-row-meta">
+                <span style="font-family:var(--mono)">${escapeHtml(id)}</span>
+                ${cvss ? `<span style="color:${cvssColor(f.cvss?.score)}">${cvss}</span>` : ''}
+                ${f.affected ? `<span><i class="fas fa-crosshairs" style="font-size:9px"></i> ${escapeHtml(String(f.affected).slice(0,50))}</span>` : ''}
+                ${hasPoc  ? `<span style="color:var(--cyan)"><i class="fas fa-terminal" style="font-size:9px"></i> PoC</span>` : ''}
+                ${hasRem  ? `<span style="color:var(--green)"><i class="fas fa-tools" style="font-size:9px"></i> Fix</span>` : ''}
+            </div>
+        </div>
+        <div class="finding-row-arrow"><i class="fas fa-chevron-right"></i></div>
+    </div>`;
+}
+
+/** Return colour for CVSS score */
+function cvssColor(score) {
+    if (score == null) return 'var(--text-muted)';
+    if (score >= 9.0) return 'var(--red)';
+    if (score >= 7.0) return 'var(--orange)';
+    if (score >= 4.0) return 'var(--yellow)';
+    return 'var(--green)';
+}
+
+/** Filter findings in the scan detail panel by severity */
+function filterDetailFindings(sev) {
+    // Update active button
+    document.querySelectorAll('#detailFilterBar .finding-filter-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.sev === sev);
+    });
+    // Show/hide rows
+    document.querySelectorAll('#detailFindingsList .finding-row').forEach(row => {
+        row.style.display = (sev === 'ALL' || sev === 'TOTAL' || row.dataset.sev === sev) ? '' : 'none';
+    });
+}
+
 function closeDetail() {
     document.getElementById('scanDetailPanel').style.display = 'none';
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FINDING DETAIL MODAL
+// _modalFindings  : array of findings currently in scope
+// _modalIndex     : which finding is open
+// _modalPocText   : text for copy button
+// ─────────────────────────────────────────────────────────────────────────────
+let _modalIndex = 0;
+let _modalPocText = '';
+
+function openFindingModal(idx, findingsArr) {
+    const findings = findingsArr || window._modalFindings || [];
+    if (!findings.length) return;
+    _modalIndex = Math.max(0, Math.min(idx, findings.length - 1));
+    _renderFindingModal(findings[_modalIndex], _modalIndex, findings.length);
+    document.getElementById('findingModal').style.display = 'block';
+    document.body.style.overflow = 'hidden';
+}
+
+function closeFindingModal() {
+    document.getElementById('findingModal').style.display = 'none';
+    document.body.style.overflow = '';
+}
+
+function navigateFinding(dir) {
+    const findings = window._modalFindings || [];
+    _modalIndex = Math.max(0, Math.min(_modalIndex + dir, findings.length - 1));
+    _renderFindingModal(findings[_modalIndex], _modalIndex, findings.length);
+}
+
+function _renderFindingModal(f, idx, total) {
+    const sev  = f.severity || 'INFO';
+    const SEV_COLORS = {
+        CRITICAL:'rgba(239,68,68,0.15)',HIGH:'rgba(249,115,22,0.12)',
+        MEDIUM:'rgba(245,158,11,0.10)',LOW:'rgba(16,185,129,0.08)',INFO:'rgba(6,182,212,0.08)'
+    };
+    const SEV_BORDER = {
+        CRITICAL:'rgba(239,68,68,0.35)',HIGH:'rgba(249,115,22,0.28)',
+        MEDIUM:'rgba(245,158,11,0.25)',LOW:'rgba(16,185,129,0.25)',INFO:'rgba(6,182,212,0.2)'
+    };
+
+    // Header
+    const header = document.getElementById('findingModalHeader');
+    header.style.background    = SEV_COLORS[sev] || 'rgba(255,255,255,0.03)';
+    header.style.borderBottom  = `1px solid ${SEV_BORDER[sev] || 'rgba(255,255,255,0.08)'}`;
+
+    // Badge, id, source
+    const badge = document.getElementById('findingModalBadge');
+    badge.className = `sev-badge ${sev}`;
+    badge.textContent = sev;
+
+    document.getElementById('findingModalId').textContent = f.id || `#${idx+1}`;
+
+    const sourceEl = document.getElementById('findingModalSource');
+    sourceEl.textContent = f.source ? `via ${f.source}` : '';
+    sourceEl.style.display = f.source ? '' : 'none';
+
+    // Title
+    document.getElementById('findingModalTitle').textContent = f.type || 'Security Finding';
+
+    // CVSS
+    const cvssWrap = document.getElementById('findingModalCvss');
+    if (f.cvss && f.cvss.score != null) {
+        cvssWrap.style.display = '';
+        const scoreEl = document.getElementById('findingCvssScore');
+        scoreEl.textContent = f.cvss.score.toFixed(1);
+        scoreEl.style.color = cvssColor(f.cvss.score);
+        document.getElementById('findingCvssVector').textContent = f.cvss.vector || '';
+        const bar = document.getElementById('findingCvssBar');
+        bar.style.width = `${Math.min(100, (f.cvss.score / 10) * 100)}%`;
+        bar.style.background = cvssColor(f.cvss.score);
+    } else {
+        cvssWrap.style.display = 'none';
+    }
+
+    // Affected
+    const affEl = document.getElementById('findingModalAffected');
+    affEl.textContent = f.affected || f.url || f.path || '—';
+    document.getElementById('findingAffectedWrap').style.display = '';
+
+    // Description
+    document.getElementById('findingModalDesc').textContent = f.description || 'No description available.';
+
+    // PoC
+    const pocWrap = document.getElementById('findingPocWrap');
+    const pocEl   = document.getElementById('findingModalPoc');
+    if (f.poc && f.poc.trim()) {
+        pocWrap.style.display = '';
+        pocEl.textContent = f.poc.trim();
+        _modalPocText = f.poc.trim();
+    } else {
+        pocWrap.style.display = 'none';
+        _modalPocText = '';
+    }
+
+    // Remediation
+    const remWrap = document.getElementById('findingRemWrap');
+    const remEl   = document.getElementById('findingModalRem');
+    if (f.remediation && f.remediation.trim()) {
+        remWrap.style.display = '';
+        remEl.textContent = f.remediation.trim();
+    } else {
+        remWrap.style.display = 'none';
+    }
+
+    // Tags
+    const tagsWrap = document.getElementById('findingTagsWrap');
+    const tagsEl   = document.getElementById('findingModalTags');
+    const tags = f.tags || (f.header ? [f.header] : null);
+    if (tags && tags.length) {
+        tagsWrap.style.display = '';
+        tagsEl.innerHTML = tags.map(t =>
+            `<span style="padding:3px 10px;background:rgba(99,102,241,0.12);
+                         border:1px solid rgba(99,102,241,0.22);border-radius:20px;
+                         font-size:11px;color:#818cf8">${escapeHtml(t)}</span>`
+        ).join('');
+    } else {
+        tagsWrap.style.display = 'none';
+    }
+
+    // References
+    const refsWrap = document.getElementById('findingRefsWrap');
+    const refsEl   = document.getElementById('findingModalRefs');
+    const refs = f.references || f.refs || [];
+    if (refs.length) {
+        refsWrap.style.display = '';
+        refsEl.innerHTML = refs.map(r => {
+            const url = typeof r === 'string' ? r : r.url || String(r);
+            return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener"
+                       style="color:var(--accent);font-size:12px;text-decoration:none;
+                              display:inline-flex;align-items:center;gap:5px;
+                              padding:4px 10px;background:rgba(99,102,241,0.06);
+                              border:1px solid rgba(99,102,241,0.15);border-radius:6px;
+                              overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%">
+                        <i class="fas fa-external-link-alt" style="font-size:10px;flex-shrink:0"></i>
+                        ${escapeHtml(url.length > 60 ? url.slice(0,60)+'…' : url)}
+                    </a>`;
+        }).join('');
+    } else {
+        refsWrap.style.display = 'none';
+    }
+
+    // Raw / extra
+    const rawWrap = document.getElementById('findingRawWrap');
+    const rawEl   = document.getElementById('findingModalRaw');
+    const rawData = f.raw || f.curl || f.extra || '';
+    if (rawData && String(rawData).trim()) {
+        rawWrap.style.display = '';
+        rawEl.textContent = String(rawData).trim();
+    } else {
+        rawWrap.style.display = 'none';
+    }
+
+    // Counter + prev/next state
+    document.getElementById('findingModalCounter').textContent = `${idx+1} / ${total}`;
+}
+
+function copyFindingPoC() {
+    if (!_modalPocText) return;
+    navigator.clipboard.writeText(_modalPocText)
+        .then(() => showToast('PoC copied to clipboard!', 'success'))
+        .catch(() => showToast('Copy failed', 'error'));
+}
+
+function toggleFindingRaw() {
+    const el  = document.getElementById('findingModalRaw');
+    const chv = document.getElementById('findingRawChevron');
+    const vis = el.style.display === 'none';
+    el.style.display  = vis ? 'block' : 'none';
+    chv.className = `fas fa-chevron-${vis ? 'up' : 'down'}`;
+}
+
+// Keyboard navigation for modal
+document.addEventListener('keydown', e => {
+    const modal = document.getElementById('findingModal');
+    if (!modal || modal.style.display === 'none') return;
+    if (e.key === 'Escape')     closeFindingModal();
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown')  navigateFinding(1);
+    if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')    navigateFinding(-1);
+});
 
 // ─── Individual Tools ─────────────────────────────────────────────────────────
 
@@ -2184,29 +2493,47 @@ async function loadReports() {
                 </div>
             </div>
 
-            <!-- Top Findings Preview -->
+            <!-- Findings Preview (clickable rows) -->
             <div style="padding:14px 18px">
                 ${(report.findings || []).length > 0
-                    ? `<div style="font-size:11px;font-weight:700;color:var(--text-muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px">
-                           <i class="fas fa-bug" style="margin-right:6px"></i>Top Findings
+                    ? `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:6px">
+                           <div style="font-size:11px;font-weight:700;color:var(--text-muted);letter-spacing:1px;text-transform:uppercase">
+                               <i class="fas fa-bug" style="margin-right:6px"></i>Top Findings
+                           </div>
+                           <button onclick="viewAllReportFindings('${scan.id}', ${JSON.stringify(report.findings).replace(/'/g,"\\'")})"
+                               style="font-size:11px;padding:4px 12px;background:rgba(99,102,241,0.12);
+                                      border:1px solid rgba(99,102,241,0.25);border-radius:6px;
+                                      color:#818cf8;cursor:pointer;font-weight:600">
+                               View All ${report.findings.length} <i class="fas fa-arrow-right"></i>
+                           </button>
                        </div>
-                       ${(report.findings||[]).slice(0,5).map(f => `
-                           <div class="report-finding-item" style="margin-bottom:8px">
-                               <div class="report-finding-header" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                                   <span class="sev-badge ${escapeHtml(f.severity)}">${escapeHtml(f.severity)}</span>
-                                   <span style="font-size:10px;color:var(--text-muted)">${escapeHtml(f.id||'')}</span>
-                                   <span style="font-size:12px;font-weight:600;color:var(--text-primary)">${escapeHtml(f.type||'Finding')}</span>
-                                   <span style="font-size:10px;color:var(--text-muted);margin-left:auto">CVSS&nbsp;${escapeHtml(String(f.cvss?.score||'N/A'))}</span>
+                       ${(report.findings||[]).slice(0,5).map((f, idx) => `
+                           <div class="finding-row ${escapeHtml(f.severity||'INFO')}"
+                                onclick="viewReportFinding(${idx}, '${scan.id}')">
+                               <div style="padding-top:1px">
+                                   <span class="sev-badge ${escapeHtml(f.severity||'INFO')}"
+                                         style="font-size:10px;padding:2px 7px;white-space:nowrap">
+                                       ${escapeHtml(f.severity||'INFO')}
+                                   </span>
                                </div>
-                               <div style="font-size:12px;color:var(--text-secondary);margin-top:4px">${escapeHtml(f.description||'')}</div>
-                               ${f.remediation?`<div class="report-finding-rem" style="font-size:11px">${escapeHtml(f.remediation)}</div>`:''}
+                               <div class="finding-row-main">
+                                   <div class="finding-row-title">${escapeHtml(f.type||'Finding')}</div>
+                                   <div class="finding-row-desc">${escapeHtml(f.description||'')}</div>
+                                   <div class="finding-row-meta">
+                                       <span style="font-family:var(--mono)">${escapeHtml(f.id||'')}</span>
+                                       ${f.cvss?.score!=null ? `<span style="color:${cvssColor(f.cvss.score)}">CVSS ${f.cvss.score}</span>` : ''}
+                                       ${f.remediation ? `<span style="color:var(--green)"><i class="fas fa-tools" style="font-size:9px"></i> Fix available</span>` : ''}
+                                   </div>
+                               </div>
+                               <div class="finding-row-arrow"><i class="fas fa-chevron-right"></i></div>
                            </div>`).join('')}
                        ${(report.findings||[]).length>5
-                           ? `<div style="font-size:11px;color:var(--text-muted);text-align:center;padding:6px 0">
-                                  … and ${report.findings.length-5} more finding(s) —
-                                  <button onclick="downloadExport('${scan.id}','html')"
-                                      style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:11px;padding:0;text-decoration:underline">
-                                      download full report
+                           ? `<div style="text-align:center;padding:8px 0;font-size:11px;color:var(--text-muted)">
+                                  … ${report.findings.length-5} more finding(s) —
+                                  <button onclick="viewAllReportFindings('${scan.id}', null)"
+                                      style="background:none;border:none;color:var(--accent);cursor:pointer;
+                                             font-size:11px;padding:0;text-decoration:underline">
+                                      View all
                                   </button>
                               </div>` : ''}`
                     : `<div style="color:var(--text-muted);font-size:12px;padding:4px 0">
@@ -2285,7 +2612,48 @@ function buildQuickDownloadLinks(scans) {
     }).join('');
 }
 
-// ─── Export / Download helpers ────────────────────────────────────────────────
+// ─── Report Findings Modal helpers ───────────────────────────────────────────
+
+/** Cache for report findings keyed by scanId */
+const _reportFindingsCache = {};
+
+/**
+ * Open the Finding Detail Modal for a finding shown in the Reports page.
+ * findingsArr may be passed inline (for top-5 preview) or fetched from API.
+ */
+async function viewReportFinding(idx, scanId) {
+    if (!_reportFindingsCache[scanId]) {
+        try {
+            const r = await fetch(`${API_BASE}/scan/${scanId}/report`);
+            const d = await r.json();
+            _reportFindingsCache[scanId] = d.findings || [];
+        } catch(e) {
+            showToast('Could not load findings', 'error'); return;
+        }
+    }
+    window._modalFindings = _reportFindingsCache[scanId];
+    openFindingModal(idx);
+}
+
+/**
+ * Show ALL findings from a report in the modal navigator.
+ */
+async function viewAllReportFindings(scanId, inlineFindings) {
+    if (inlineFindings) {
+        window._modalFindings = inlineFindings;
+        _reportFindingsCache[scanId] = inlineFindings;
+    } else {
+        if (!_reportFindingsCache[scanId]) {
+            try {
+                const r = await fetch(`${API_BASE}/scan/${scanId}/report`);
+                const d = await r.json();
+                _reportFindingsCache[scanId] = d.findings || [];
+            } catch(e) { showToast('Could not load findings', 'error'); return; }
+        }
+        window._modalFindings = _reportFindingsCache[scanId];
+    }
+    openFindingModal(0);
+}
 
 /**
  * Trigger a file download from the export endpoint.
