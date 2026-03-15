@@ -75,6 +75,9 @@ function navigateTo(pageName) {
         cors: 'CORS Tester',
         fingerprint: 'Tech Fingerprinting',
         paths: 'Path Discovery',
+        xss: 'XSS Scanner',
+        sqli: 'SQL Injection Scanner',
+        methods: 'HTTP Methods Checker',
         cvss: 'CVSS Calculator',
         poc: 'PoC Generator',
         reports: 'Reports'
@@ -594,6 +597,9 @@ async function runTool(tool) {
             case 'cors': renderCORSResults(resultContent, data); break;
             case 'fingerprint': renderFingerprintResults(resultContent, data); break;
             case 'paths': renderPathResults(resultContent, data); break;
+            case 'xss': renderVulnFindingsResults(resultContent, data, 'XSS'); break;
+            case 'sqli': renderVulnFindingsResults(resultContent, data, 'SQLi'); break;
+            case 'methods': renderMethodsResults(resultContent, data); break;
         }
         
     } catch (err) {
@@ -949,6 +955,100 @@ function renderPathResults(container, data) {
 }
 
 // ─── CVSS Calculator ──────────────────────────────────────────────────────────
+
+// ─── XSS / SQLi Findings Renderer ────────────────────────────────────────────
+
+function renderVulnFindingsResults(container, data, toolName) {
+    const findings = data.findings || [];
+
+    if (findings.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-shield-alt fa-2x" style="color:var(--green)"></i>
+                <p style="color:var(--green)">No ${toolName} vulnerabilities detected</p>
+            </div>`;
+        return;
+    }
+
+    const sevColors = { CRITICAL:'var(--red)', HIGH:'#f97316', MEDIUM:'#f59e0b', LOW:'#3b82f6', INFO:'var(--text-muted)' };
+
+    container.innerHTML = `
+        <div style="margin-bottom:12px;font-size:12px;color:var(--text-muted)">
+            Found <strong style="color:var(--red)">${findings.length}</strong> potential ${toolName} issue(s)
+        </div>
+        ${findings.map((f, i) => `
+            <div class="header-finding" style="margin-bottom:12px;border-left:3px solid ${sevColors[f.severity]||'#888'}">
+                <div class="header-finding-top">
+                    <span class="sev-badge ${f.severity}">${f.severity}</span>
+                    <span style="font-weight:600;font-size:13px;color:var(--text-primary)">${escapeHtml(f.type || toolName)}</span>
+                </div>
+                <div class="header-finding-body" style="padding-top:6px">
+                    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">${escapeHtml(f.description || '')}</div>
+                    ${f.url ? `<div style="font-size:11px;font-family:var(--mono);background:rgba(255,255,255,0.04);padding:4px 8px;border-radius:4px;margin-bottom:4px;word-break:break-all">
+                        <strong>URL:</strong> <a href="${escapeHtml(f.url)}" target="_blank" style="color:var(--accent)">${escapeHtml(f.url)}</a>
+                    </div>` : ''}
+                    ${f.payload ? `<div style="font-size:11px;font-family:var(--mono);background:rgba(239,68,68,0.08);padding:4px 8px;border-radius:4px;margin-bottom:4px">
+                        <strong>Payload:</strong> <span style="color:#f87171">${escapeHtml(f.payload)}</span>
+                    </div>` : ''}
+                    ${f.error_signature ? `<div style="font-size:11px;font-family:var(--mono);background:rgba(239,68,68,0.08);padding:4px 8px;border-radius:4px;margin-bottom:4px">
+                        <strong>DB Error:</strong> <span style="color:#f87171">${escapeHtml(f.error_signature)}</span>
+                    </div>` : ''}
+                    ${f.remediation ? `<div style="font-size:11px;color:var(--green);margin-top:4px"><i class="fas fa-wrench"></i> ${escapeHtml(f.remediation)}</div>` : ''}
+                </div>
+            </div>
+        `).join('')}
+    `;
+}
+
+// ─── HTTP Methods Renderer ────────────────────────────────────────────────────
+
+function renderMethodsResults(container, data) {
+    const findings = data.findings || [];
+
+    if (findings.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <i class="fas fa-check-circle fa-2x" style="color:var(--green)"></i>
+                <p style="color:var(--green)">No dangerous HTTP methods detected</p>
+            </div>`;
+        return;
+    }
+
+    const sevColors = { CRITICAL:'var(--red)', HIGH:'#f97316', MEDIUM:'#f59e0b', LOW:'#3b82f6', INFO:'var(--text-muted)' };
+    const methodColors = { DELETE:'var(--red)', PUT:'#f97316', TRACE:'#f59e0b', PATCH:'#f59e0b',
+                           CONNECT:'#f97316', OPTIONS:'var(--accent)', PROPFIND:'#8b5cf6',
+                           MKCOL:'#8b5cf6', GET:'var(--green)', POST:'#10b981', HEAD:'var(--text-muted)' };
+
+    container.innerHTML = `
+        <div style="margin-bottom:12px;font-size:12px;color:var(--text-muted)">
+            Found <strong style="color:var(--orange)">${findings.length}</strong> HTTP method finding(s)
+        </div>
+        ${findings.map(f => `
+            <div class="header-finding" style="margin-bottom:10px;border-left:3px solid ${sevColors[f.severity]||'#888'}">
+                <div class="header-finding-top">
+                    <span class="sev-badge ${f.severity}">${f.severity}</span>
+                    <span style="font-family:var(--mono);font-weight:700;font-size:13px;
+                          color:${methodColors[f.method]||'var(--text-primary)'}">
+                        ${escapeHtml(f.method || 'OPTIONS')}
+                    </span>
+                    ${f.status_code ? `<span style="font-size:11px;background:rgba(255,255,255,0.06);padding:2px 6px;border-radius:4px;color:var(--text-secondary)">${f.status_code}</span>` : ''}
+                </div>
+                <div class="header-finding-body" style="padding-top:6px">
+                    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">${escapeHtml(f.description || '')}</div>
+                    ${f.methods ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px">
+                        ${f.methods.map(m => `<span style="font-family:var(--mono);font-size:11px;
+                            background:rgba(${methodColors[m] ? '255,255,255' : '59,130,246'},0.08);
+                            color:${methodColors[m]||'var(--accent)'};padding:2px 6px;border-radius:4px">${m}</span>`).join('')}
+                    </div>` : ''}
+                    ${f.poc ? `<pre style="font-size:10px;background:rgba(255,255,255,0.04);padding:8px;border-radius:4px;overflow-x:auto;white-space:pre-wrap;word-break:break-all">${escapeHtml(f.poc)}</pre>` : ''}
+                    ${f.remediation ? `<div style="font-size:11px;color:var(--green);margin-top:4px"><i class="fas fa-wrench"></i> ${escapeHtml(f.remediation)}</div>` : ''}
+                </div>
+            </div>
+        `).join('')}
+    `;
+}
+
+
 
 function setCVSS(btn, metric, value) {
     cvssValues[metric] = value;

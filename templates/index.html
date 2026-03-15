@@ -71,6 +71,18 @@
                 <i class="fas fa-folder-open"></i>
                 <span>Path Discovery</span>
             </a>
+            <a href="#" class="nav-item" data-page="xss">
+                <i class="fas fa-bug"></i>
+                <span>XSS Scanner</span>
+            </a>
+            <a href="#" class="nav-item" data-page="sqli">
+                <i class="fas fa-database"></i>
+                <span>SQLi Scanner</span>
+            </a>
+            <a href="#" class="nav-item" data-page="methods">
+                <i class="fas fa-exchange-alt"></i>
+                <span>HTTP Methods</span>
+            </a>
         </div>
         
         <div class="nav-section">
@@ -539,7 +551,7 @@
                             </div>
                             <div class="info-note">
                                 <i class="fas fa-info-circle"></i>
-                                Checks 40+ common paths: admin panels, config files, API docs, backups
+                                Checks 70+ common paths: admin panels, config files, API docs, backups
                             </div>
                             <button class="btn btn-primary btn-full" onclick="runTool('paths')">
                                 <i class="fas fa-play"></i> Discover Paths
@@ -551,6 +563,96 @@
                             <h2><i class="fas fa-poll-h"></i> Discovered Paths</h2>
                         </div>
                         <div class="card-body" id="pathsResultContent"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- XSS SCANNER PAGE -->
+            <div class="page" id="page-xss">
+                <div class="tool-layout">
+                    <div class="card">
+                        <div class="card-header">
+                            <h2><i class="fas fa-bug"></i> XSS Scanner</h2>
+                        </div>
+                        <div class="card-body">
+                            <div class="form-group">
+                                <label class="form-label">Target URL</label>
+                                <input type="text" id="xssTarget" placeholder="https://example.com" autocomplete="off">
+                            </div>
+                            <div class="info-note">
+                                <i class="fas fa-info-circle"></i>
+                                Tests reflected XSS and SSTI via common URL parameters
+                            </div>
+                            <button class="btn btn-primary btn-full" onclick="runTool('xss')">
+                                <i class="fas fa-play"></i> Run XSS Scan
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card tool-result-card" id="xssResult" style="display:none">
+                        <div class="card-header">
+                            <h2><i class="fas fa-radiation-alt"></i> XSS Results</h2>
+                        </div>
+                        <div class="card-body" id="xssResultContent"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SQLI SCANNER PAGE -->
+            <div class="page" id="page-sqli">
+                <div class="tool-layout">
+                    <div class="card">
+                        <div class="card-header">
+                            <h2><i class="fas fa-database"></i> SQL Injection Scanner</h2>
+                        </div>
+                        <div class="card-body">
+                            <div class="form-group">
+                                <label class="form-label">Target URL</label>
+                                <input type="text" id="sqliTarget" placeholder="https://example.com" autocomplete="off">
+                            </div>
+                            <div class="info-note">
+                                <i class="fas fa-info-circle"></i>
+                                Probes common SQL injection payloads and detects DB error signatures
+                            </div>
+                            <button class="btn btn-primary btn-full" onclick="runTool('sqli')">
+                                <i class="fas fa-play"></i> Run SQLi Scan
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card tool-result-card" id="sqliResult" style="display:none">
+                        <div class="card-header">
+                            <h2><i class="fas fa-radiation-alt"></i> SQLi Results</h2>
+                        </div>
+                        <div class="card-body" id="sqliResultContent"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- HTTP METHODS PAGE -->
+            <div class="page" id="page-methods">
+                <div class="tool-layout">
+                    <div class="card">
+                        <div class="card-header">
+                            <h2><i class="fas fa-exchange-alt"></i> HTTP Methods Checker</h2>
+                        </div>
+                        <div class="card-body">
+                            <div class="form-group">
+                                <label class="form-label">Target URL</label>
+                                <input type="text" id="methodsTarget" placeholder="https://example.com" autocomplete="off">
+                            </div>
+                            <div class="info-note">
+                                <i class="fas fa-info-circle"></i>
+                                Probes dangerous HTTP methods: PUT, DELETE, TRACE, PATCH, OPTIONS, WebDAV
+                            </div>
+                            <button class="btn btn-primary btn-full" onclick="runTool('methods')">
+                                <i class="fas fa-play"></i> Check Methods
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card tool-result-card" id="methodsResult" style="display:none">
+                        <div class="card-header">
+                            <h2><i class="fas fa-list-ul"></i> Methods Results</h2>
+                        </div>
+                        <div class="card-body" id="methodsResultContent"></div>
                     </div>
                 </div>
             </div>

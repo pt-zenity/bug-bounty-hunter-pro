@@ -401,90 +401,135 @@ TECH_SIGS = [
 ]
 
 def fingerprint_tech(target):
-    url = base_url(target)
-    found = {}  # name → entry  (deduplicate)
+    """
+    FIX: Follow redirects fully, probe multiple URLs (root, /index, /login),
+    aggregate headers and content across all responses for richer detection.
+    """
+    base = base_url(target)
+    found = {}  # name → entry (deduplicate)
 
-    try:
-        resp = requests.get(url, timeout=8, verify=False,
-                            headers={'User-Agent': 'Mozilla/5.0 BugBountyHunter/2.0'},
-                            allow_redirects=True)
-        h = resp.headers
-        content = resp.text  # keep original case for header matching
+    # Probe these paths to maximise detection surface
+    probe_paths = ['/', '/index.php', '/index.html', '/login', '/wp-login.php',
+                   '/admin', '/app', '/dashboard']
 
-        server_header  = h.get("Server", "").lower()
-        xpb_header     = h.get("X-Powered-By", "").lower()
-        cookie_header  = h.get("Set-Cookie", "").lower()
-        all_headers_lc = " ".join(f"{k.lower()}: {v.lower()}" for k, v in h.items())
-        content_lc     = content.lower()
+    all_content_lc   = ""
+    all_headers_lc   = ""
+    server_header    = ""
+    xpb_header_raw   = ""
+    cookie_header    = ""
 
-        for pattern, name, category, match_in in TECH_SIGS:
-            if name in found:
-                continue
-            haystack = {
-                "server_header": server_header,
-                "xpb_header":    xpb_header,
-                "cookie_header": cookie_header,
-                "content":       content_lc,
-                "any_header":    all_headers_lc,
-            }.get(match_in, "")
+    session = requests.Session()
+    session.headers.update({'User-Agent': 'Mozilla/5.0 BugBountyHunter/2.0'})
 
-            if re.search(pattern, haystack, re.IGNORECASE):
-                # Extract version if pattern contains version group
-                ver = None
-                m = re.search(pattern, haystack, re.IGNORECASE)
-                if m and '/' in m.group():
-                    ver = m.group().split('/')[-1].strip()
-                found[name] = {"name": name, "category": category,
-                               "source": match_in.replace('_header','').replace('_',' ')}
-                if ver:
-                    found[name]["version"] = ver
+    for path in probe_paths:
+        try:
+            url = base.rstrip('/') + path
+            resp = session.get(url, timeout=8, verify=False,
+                               allow_redirects=True, stream=False)
+            h = resp.headers
 
-        # Always add raw Server header if present
-        if server_header and "server" not in {k.lower() for k in found}:
+            if not server_header:
+                server_header  = h.get("Server", "").lower()
+            if not xpb_header_raw:
+                xpb_header_raw = h.get("X-Powered-By", "")
+            cookie_header += " " + h.get("Set-Cookie", "").lower()
+            all_headers_lc += " " + " ".join(
+                f"{k.lower()}: {v.lower()}" for k, v in h.items())
+            # Only store first 500 KB of content
+            all_content_lc += " " + resp.text[:500_000].lower()
+
+            # Stop probing deeply after getting a good response
+            if resp.status_code == 200 and len(resp.text) > 500:
+                break
+        except Exception:
+            continue
+
+    xpb_header = xpb_header_raw.lower()
+
+    for pattern, name, category, match_in in TECH_SIGS:
+        if name in found:
+            continue
+        haystack = {
+            "server_header": server_header,
+            "xpb_header":    xpb_header,
+            "cookie_header": cookie_header,
+            "content":       all_content_lc,
+            "any_header":    all_headers_lc,
+        }.get(match_in, "")
+
+        if re.search(pattern, haystack, re.IGNORECASE):
+            m = re.search(pattern, haystack, re.IGNORECASE)
+            ver = None
+            if m and '/' in m.group():
+                ver = m.group().split('/')[-1].strip()
+            found[name] = {"name": name, "category": category,
+                           "source": match_in.replace('_header','').replace('_',' ')}
+            if ver:
+                found[name]["version"] = ver
+
+    # Always expose raw Server header if no specific web-server tech matched
+    if server_header:
+        cats_found = {v["category"] for v in found.values()}
+        if "web-server" not in cats_found:
             found["_server"] = {"name": server_header.title(), "category": "web-server",
-                                "source": "server header", "raw": True}
+                                "source": "server header"}
 
-        # X-Powered-By
-        if xpb_header:
-            found["_xpb"] = {"name": h.get("X-Powered-By",""), "category": "backend",
-                             "source": "X-Powered-By header"}
+    # Always expose X-Powered-By
+    if xpb_header_raw and xpb_header_raw.lower() not in {v["name"].lower() for v in found.values()}:
+        found["_xpb"] = {"name": xpb_header_raw, "category": "backend",
+                         "source": "X-Powered-By header"}
 
-    except Exception as e:
-        # FIX BUG 8: don't add error as tech entry
-        pass
-
-    return [v for v in found.values() if not v.get("raw") or v["name"] not in found]
+    return list(found.values())
 
 # ─── Path Discovery ───────────────────────────────────────────────────────────
 
 PATHS_TO_CHECK = [
-    # Config / secrets
-    "/.env", "/.env.local", "/.env.backup", "/.git/config", "/.git/HEAD",
+    # Config / secrets (CRITICAL)
+    "/.env", "/.env.local", "/.env.backup", "/.env.production", "/.env.dev",
+    "/.git/config", "/.git/HEAD", "/.git/COMMIT_EDITMSG",
     "/config.php", "/config.yml", "/config.yaml", "/settings.py", "/settings.php",
-    "/.htaccess", "/web.config",
+    "/.htaccess", "/web.config", "/.htpasswd",
+    "/wp-config.php", "/wp-config.php.bak",
     # Backups
-    "/backup", "/backup.zip", "/backup.tar.gz", "/db.sql", "/dump.sql", "/database.sql",
+    "/backup", "/backup.zip", "/backup.tar.gz", "/db.sql", "/dump.sql",
+    "/database.sql", "/backup.sql", "/site.tar.gz", "/www.tar.gz",
     # Admin panels
-    "/admin", "/admin/login", "/administrator", "/wp-admin", "/panel",
-    "/dashboard", "/_admin", "/manage", "/cp", "/control",
+    "/admin", "/admin/", "/admin/login", "/admin/dashboard",
+    "/administrator", "/administrator/index.php",
+    "/wp-admin", "/wp-admin/", "/wp-login.php",
+    "/panel", "/panel/", "/dashboard", "/_admin", "/manage", "/cp",
+    "/control", "/admin1", "/admin2", "/superuser",
     # CMS
-    "/wp-login.php", "/xmlrpc.php", "/wp-json/wp/v2/users",
-    # Info/debug
-    "/phpinfo.php", "/info.php", "/test.php", "/debug",
-    "/actuator", "/actuator/health", "/actuator/env", "/actuator/mappings",
-    "/health", "/status", "/metrics", "/ping",
-    # API
-    "/api", "/api/v1", "/api/v2", "/api/docs", "/api/swagger",
+    "/xmlrpc.php", "/wp-json/wp/v2/users", "/wp-json/wp/v2/posts",
+    "/user/login", "/user/register",
+    # Info / debug
+    "/phpinfo.php", "/info.php", "/test.php", "/debug", "/debug.php",
+    "/actuator", "/actuator/health", "/actuator/env",
+    "/actuator/mappings", "/actuator/beans", "/actuator/loggers",
+    "/health", "/healthz", "/status", "/metrics", "/ping", "/ready",
+    "/server-status", "/server-info",
+    # API docs
+    "/api", "/api/v1", "/api/v2", "/api/v3", "/api/docs",
+    "/api/swagger", "/api/swagger-ui",
     "/swagger.json", "/swagger/v1/swagger.json", "/openapi.json",
-    "/graphql", "/graphiql",
+    "/graphql", "/graphiql", "/graphql/console",
+    "/redoc", "/api-docs", "/docs",
     # Well-known
-    "/robots.txt", "/sitemap.xml", "/.well-known/security.txt",
-    "/.well-known/openid-configuration",
+    "/robots.txt", "/sitemap.xml", "/sitemap_index.xml",
+    "/.well-known/security.txt", "/.well-known/openid-configuration",
+    "/.well-known/assetlinks.json", "/.well-known/apple-app-site-association",
     # Source leaks
     "/.DS_Store", "/package.json", "/composer.json", "/Gemfile",
-    "/requirements.txt", "/yarn.lock",
+    "/requirements.txt", "/yarn.lock", "/package-lock.json",
+    "/composer.lock", "/Pipfile",
     # Login
-    "/login", "/signin", "/auth/login", "/user/login", "/account/login",
+    "/login", "/signin", "/auth/login", "/account/login",
+    "/auth/signin", "/oauth/authorize", "/oauth2/authorize",
+    # Misc
+    "/console", "/shell", "/.ssh/authorized_keys",
+    "/etc/passwd", "/proc/self/environ",
+    "/crossdomain.xml", "/clientaccesspolicy.xml",
+    "/trace.axd", "/elmah.axd", "/webresource.axd",
 ]
 
 def check_common_paths(target):
@@ -495,39 +540,51 @@ def check_common_paths(target):
     def check_path(path):
         try:
             full_url = url.rstrip('/') + path
-            resp = requests.get(full_url, timeout=4, verify=False,
+            resp = requests.get(full_url, timeout=5, verify=False,
                                 allow_redirects=False,
                                 headers={'User-Agent': 'Mozilla/5.0 BugBountyHunter/2.0'})
             code = resp.status_code
-            if code not in (200, 301, 302, 403):
+            if code not in (200, 301, 302, 307, 308, 401, 403):
                 return None
 
+            p_lc = path.lower()
             sev, vtype = "INFO", "Endpoint Discovered"
+
             if code == 200:
-                p_lc = path.lower()
-                if any(x in p_lc for x in ['.env','.git','config','backup','dump','.sql','settings']):
+                if any(x in p_lc for x in ['.env', '.git', 'config', 'backup', 'dump', '.sql',
+                                             'settings', '.htpasswd', 'wp-config', 'passwd',
+                                             'authorized_keys', 'environ']):
                     sev, vtype = "CRITICAL", "Sensitive File Exposed"
-                elif any(x in p_lc for x in ['/admin','/administrator','/wp-admin','/panel','/cp','/control']):
+                elif any(x in p_lc for x in ['/admin', '/administrator', '/wp-admin', '/panel',
+                                               '/cp', '/control', '/superuser', 'console', 'shell']):
                     sev, vtype = "HIGH", "Admin Panel Found"
-                elif any(x in p_lc for x in ['phpinfo','actuator','/debug','xmlrpc']):
+                elif any(x in p_lc for x in ['phpinfo', 'actuator', '/debug', 'xmlrpc',
+                                               'server-status', 'server-info', 'elmah', 'trace']):
                     sev, vtype = "HIGH", "Debug / Info Endpoint"
-                elif any(x in p_lc for x in ['api','swagger','graphql','openapi']):
+                elif any(x in p_lc for x in ['api', 'swagger', 'graphql', 'openapi', 'redoc',
+                                               'api-docs', 'openid']):
                     sev, vtype = "MEDIUM", "API Endpoint Found"
-                elif any(x in p_lc for x in ['login','signin','auth']):
+                elif any(x in p_lc for x in ['login', 'signin', 'auth', 'oauth']):
                     sev, vtype = "LOW", "Login Page Found"
                 else:
                     sev, vtype = "LOW", "Public Endpoint"
+            elif code in (301, 302, 307, 308):
+                location = resp.headers.get('Location', '')
+                sev, vtype = "INFO", f"Redirect → {location or '?'}"
+            elif code == 401:
+                sev, vtype = "LOW", "Unauthorised (Resource Exists)"
             elif code == 403:
                 sev, vtype = "LOW", "Forbidden (Resource Exists)"
 
             return {"path": path, "url": full_url, "status": code,
                     "type": vtype, "severity": sev,
                     "content_length": len(resp.content),
-                    "server": resp.headers.get("Server","")}
+                    "server": resp.headers.get("Server",""),
+                    "redirect": resp.headers.get("Location","")}
         except Exception:
             return None
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=15) as ex:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as ex:
         for res in ex.map(check_path, PATHS_TO_CHECK):
             if res:
                 results.append(res)
@@ -612,6 +669,114 @@ def check_open_redirect(target):
                     break
             except Exception:
                 pass
+    return findings
+
+# ─── SQL Injection Basic ──────────────────────────────────────────────────────
+
+SQLI_PAYLOADS = [
+    "'", "''", "' OR '1'='1", "' OR 1=1--", "\" OR 1=1--",
+    "' OR 'x'='x", "1 OR 1=1", "1' ORDER BY 1--", "1 UNION SELECT NULL--",
+]
+SQLI_ERRORS = [
+    "sql syntax", "mysql_fetch", "ora-0", "pg_query", "sqlite_",
+    "microsoft sql", "syntax error", "unclosed quotation", "odbc_",
+    "warning: mysql", "supplied argument is not a valid mysql",
+    "you have an error in your sql syntax", "sqlexception",
+]
+SQLI_PARAMS = ['id', 'user', 'uid', 'search', 'q', 'query', 'name', 'username', 'page', 'item']
+
+def check_sqli_basic(target):
+    url = base_url(target)
+    findings = []
+    tested = set()
+
+    for param in SQLI_PARAMS[:6]:
+        for payload in SQLI_PAYLOADS[:5]:
+            key = f"{param}:{payload}"
+            if key in tested:
+                continue
+            tested.add(key)
+            try:
+                test_url = f"{url}?{param}={urllib.parse.quote(payload)}"
+                resp = requests.get(test_url, timeout=5, verify=False,
+                                    headers={'User-Agent': 'Mozilla/5.0 BugBountyHunter/2.0'})
+                body_lc = resp.text.lower()
+                matched_error = next((e for e in SQLI_ERRORS if e in body_lc), None)
+                if matched_error:
+                    findings.append({
+                        "type": "SQL Injection",
+                        "severity": "CRITICAL",
+                        "url": test_url,
+                        "parameter": param,
+                        "payload": payload,
+                        "error_signature": matched_error,
+                        "description": f"Possible SQL injection via '{param}' — DB error signature detected: '{matched_error}'",
+                        "poc": f"GET {test_url}\nPayload: {payload}",
+                        "remediation": "Use parameterised queries / prepared statements. Never interpolate user input into SQL."
+                    })
+                    break  # one finding per param is enough
+            except Exception:
+                pass
+    return findings
+
+# ─── HTTP Methods Check ───────────────────────────────────────────────────────
+
+DANGEROUS_METHODS = ['PUT', 'DELETE', 'PATCH', 'TRACE', 'CONNECT', 'OPTIONS',
+                     'PROPFIND', 'PROPPATCH', 'MKCOL', 'COPY', 'MOVE', 'LOCK']
+
+def check_http_methods(target):
+    url = base_url(target)
+    findings = []
+
+    # First grab the OPTIONS response
+    try:
+        opts = requests.options(url, timeout=6, verify=False,
+                                headers={'User-Agent': 'Mozilla/5.0 BugBountyHunter/2.0'})
+        allowed_hdr = opts.headers.get('Allow', opts.headers.get('Access-Control-Allow-Methods', ''))
+        allowed_methods = [m.strip().upper() for m in re.split(r'[,\s]+', allowed_hdr) if m.strip()]
+
+        if allowed_methods:
+            findings.append({
+                "type": "HTTP Methods Exposed",
+                "severity": "INFO",
+                "url": url,
+                "methods": allowed_methods,
+                "description": f"Server reports allowed methods via OPTIONS: {', '.join(allowed_methods)}",
+                "poc": f"OPTIONS {url} HTTP/1.1\nResponse Allow: {allowed_hdr}",
+                "remediation": "Restrict HTTP methods to only those required by the application."
+            })
+    except Exception:
+        allowed_methods = []
+
+    # Probe dangerous methods individually
+    for method in DANGEROUS_METHODS:
+        try:
+            resp = requests.request(method, url, timeout=5, verify=False,
+                                    headers={'User-Agent': 'Mozilla/5.0 BugBountyHunter/2.0'})
+            code = resp.status_code
+            if code in (200, 201, 204, 301, 302, 405):
+                sev = "INFO"
+                if method in ('TRACE',) and code not in (405, 501):
+                    sev = "MEDIUM"
+                elif method in ('PUT', 'DELETE') and code not in (405, 501, 403):
+                    sev = "HIGH"
+                elif method in ('PROPFIND', 'MKCOL', 'COPY', 'MOVE') and code not in (405, 501):
+                    sev = "MEDIUM"
+
+                if sev != "INFO" or code not in (405, 501):
+                    findings.append({
+                        "type": "HTTP Method Allowed",
+                        "severity": sev,
+                        "url": url,
+                        "method": method,
+                        "status_code": code,
+                        "description": f"HTTP {method} returned {code} — method may be accepted by server",
+                        "poc": f"{method} {url} HTTP/1.1\nHost: {urllib.parse.urlparse(url).netloc}\n\nResponse: {code}",
+                        "remediation": f"Disable {method} method unless explicitly required."
+                    })
+        except Exception:
+            pass
+
     return findings
 
 # ─── PoC report builder ───────────────────────────────────────────────────────
@@ -738,12 +903,32 @@ def run_full_scan(scan_id, raw_target, scan_type):
         active_scans[scan_id]["ssl"] = ssl_res
         if ssl_res.get("certificate"):
             cert = ssl_res["certificate"]
-            subj = cert.get("subject",{}).get("commonName","N/A")
+            subj   = cert.get("subject",{}).get("commonName","N/A")
             issuer = cert.get("issuer",{}).get("organizationName","N/A")
+            not_after = cert.get("not_after","")
             add_log(scan_id, f"✅ SSL OK – CN: {subj}", "success")
             add_log(scan_id, f"   → Issuer: {issuer}", "info")
-            add_log(scan_id, f"   → Expires: {cert.get('not_after','N/A')}", "info")
+            add_log(scan_id, f"   → Expires: {not_after}", "info")
             add_log(scan_id, f"   → TLS: {ssl_res.get('tls_version','?')} Cipher: {ssl_res.get('cipher',{}).get('name','?')}", "info")
+            # Check cert expiry
+            try:
+                from datetime import datetime as _dt
+                exp = _dt.strptime(not_after, "%b %d %H:%M:%S %Y %Z")
+                days_left = (exp - _dt.utcnow()).days
+                if days_left < 0:
+                    add_finding(scan_id, {"type":"Expired SSL Certificate","severity":"CRITICAL",
+                        "description":f"Certificate expired {-days_left} day(s) ago!",
+                        "remediation":"Renew SSL certificate immediately"})
+                    add_log(scan_id, f"   🚨 Certificate EXPIRED {-days_left} days ago!", "error")
+                elif days_left < 14:
+                    add_finding(scan_id, {"type":"SSL Certificate Expiring Soon","severity":"HIGH",
+                        "description":f"Certificate expires in {days_left} day(s)!",
+                        "remediation":"Renew SSL certificate ASAP"})
+                    add_log(scan_id, f"   ⚠️  Cert expires in {days_left} days!", "warning")
+                elif days_left < 30:
+                    add_log(scan_id, f"   ⚠️  Cert expires in {days_left} days — plan renewal soon", "warning")
+            except Exception:
+                pass
         elif ssl_res.get("error"):
             add_log(scan_id, f"⚠️  SSL: {ssl_res['error']}", "warning")
         for f in ssl_res.get("findings",[]):
@@ -1032,6 +1217,24 @@ def cvss_calc():
     except Exception as e:
         return jsonify({"error":str(e)}), 400
 
+@app.route('/api/tools/xss', methods=['POST'])
+def tool_xss():
+    raw = (request.json or {}).get('target','').strip()
+    if not raw: return jsonify({"error":"Target required"}), 400
+    return jsonify({"target": raw, "findings": check_xss_basic(raw)})
+
+@app.route('/api/tools/sqli', methods=['POST'])
+def tool_sqli():
+    raw = (request.json or {}).get('target','').strip()
+    if not raw: return jsonify({"error":"Target required"}), 400
+    return jsonify({"target": raw, "findings": check_sqli_basic(raw)})
+
+@app.route('/api/tools/methods', methods=['POST'])
+def tool_methods():
+    raw = (request.json or {}).get('target','').strip()
+    if not raw: return jsonify({"error":"Target required"}), 400
+    return jsonify({"target": raw, "findings": check_http_methods(raw)})
+
 if __name__ == '__main__':
-    print("[*] Bug Bounty Hunter Pro API v2 starting on :5000")
+    print("[*] Bug Bounty Hunter Pro API v2.1 starting on :5000")
     app.run(host='127.0.0.1', port=5000, debug=False, threaded=True)
