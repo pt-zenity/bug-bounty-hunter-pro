@@ -249,86 +249,85 @@ def run_subfinder(target):
             "findings": findings, "raw": out[:2000]}
 
 def run_nikto(target):
-    """Real nikto web vulnerability scan (quick scan, 60s max)."""
+    """Real nikto web vulnerability scan (stdout mode, 45s max)."""
     url = base_url(target)
-    nikto_out_file = '/tmp/nikto_scan_out.txt'
-    # Remove old output file if exists
-    try:
-        os.remove(nikto_out_file)
-    except Exception:
-        pass
 
+    # Use stdout directly to avoid file-write permission issues
     out, err, rc = _run_cmd([
         'nikto', '-h', url,
-        '-Tuning', '1234578x',
         '-nointeractive',
         '-timeout', '5',
-        '-maxtime', '60s',
-        '-Format', 'txt',
-        '-output', nikto_out_file
-    ], timeout=80)
+        '-maxtime', '45s',
+        '-Format', 'txt'
+    ], timeout=60)
 
-    # Read the output file if it was created, otherwise use stdout/stderr
-    raw = ""
-    try:
-        with open(nikto_out_file) as f:
-            raw = f.read()
-    except Exception:
-        raw = out + err
+    raw = (out or '') + (err or '')
 
     findings = []
     for line in raw.splitlines():
         line = line.strip()
-        # Nikto findings start with '+ ' and contain meaningful info
-        if not line.startswith('+ '):
+        # Nikto findings start with '+ ' or a CVE/finding bracket like '[NNN]'
+        if not line.startswith('+ ') and not (line.startswith('[') and ']' in line):
             continue
-        desc = line[2:].strip()
+        # Normalise: strip leading '+ '
+        desc = line[2:].strip() if line.startswith('+ ') else line.strip()
         # Skip header/summary lines
-        if any(skip in desc.lower() for skip in ['target host:', 'target port:', 'start time:',
-                                                   'end time:', 'host(s) tested', 'nikto v',
-                                                   '0 error(s)', 'requests made']):
+        if any(skip in desc.lower() for skip in [
+            'target host:', 'target port:', 'start time:', 'end time:',
+            'host(s) tested', 'nikto v', '0 error(s)', 'requests made',
+            'maximum execution time', 'scan terminated'
+        ]):
             continue
         if len(desc) < 10:
             continue
 
-        sev = "MEDIUM"
+        sev = 'MEDIUM'
         desc_lc = desc.lower()
         if any(x in desc_lc for x in ['critical', 'remote code', 'rce', 'sql inject']):
-            sev = "CRITICAL"
+            sev = 'CRITICAL'
         elif any(x in desc_lc for x in ['xss', 'csrf', 'injection', 'traversal', 'execute']):
-            sev = "HIGH"
+            sev = 'HIGH'
         elif any(x in desc_lc for x in ['information', 'disclosure', 'version', 'outdated',
-                                          'banner', 'allows', 'enabled']):
-            sev = "LOW"
+                                          'banner', 'allows', 'enabled', 'missing', 'found',
+                                          'robots.txt', 'inode', 'etag']):
+            sev = 'LOW'
         findings.append({
-            "type": "Nikto Finding",
-            "severity": sev,
-            "description": desc,
-            "source": "nikto"
+            'type': 'Nikto Finding',
+            'severity': sev,
+            'description': desc,
+            'source': 'nikto'
         })
-    return {"target": url, "findings": findings,
-            "raw": raw[:3000], "total": len(findings)}
+    return {'target': url, 'findings': findings,
+            'count': len(findings), 'raw': raw[:4000]}
 
 def run_ffuf(target, wordlist=None):
-    """Real ffuf directory/endpoint fuzzer."""
+    """Real ffuf directory/endpoint fuzzer using common.txt wordlist."""
     url = base_url(target)
-    # Compact wordlist written to temp file
-    common_words = [
-        'admin', 'login', 'api', 'v1', 'v2', 'backup', 'test', 'debug',
-        'config', 'dashboard', 'panel', 'user', 'users', 'account',
-        'accounts', 'auth', 'token', 'secret', 'keys', 'upload', 'uploads',
-        'files', 'docs', 'swagger', 'graphql', 'health', 'status', 'metrics',
-        'env', 'git', 'logs', 'log', 'tmp', 'temp', 'old', 'new', 'bak',
-        'sql', 'db', 'database', 'wp-admin', 'administrator', 'phpmyadmin',
-        'phpinfo', 'actuator', 'console', 'manager', 'management', 'proxy',
-        'api/v1', 'api/v2', 'api/docs', 'swagger.json', 'openapi.json',
-        '.env', '.git', 'robots.txt', 'sitemap.xml',
-    ]
-    wl_path = '/tmp/ffuf_wordlist.txt'
+
+    # Prefer the bundled wordlist; fallback to built-in compact list
+    BUNDLED_WL = '/home/user/webapp/wordlists/common.txt'
+    if wordlist and os.path.isfile(wordlist):
+        wl_path = wordlist
+    elif os.path.isfile(BUNDLED_WL):
+        wl_path = BUNDLED_WL
+    else:
+        # Compact fallback wordlist
+        common_words = [
+            'admin', 'login', 'api', 'v1', 'v2', 'backup', 'test', 'debug',
+            'config', 'dashboard', 'panel', 'user', 'users', 'account',
+            'accounts', 'auth', 'token', 'secret', 'keys', 'upload', 'uploads',
+            'files', 'docs', 'swagger', 'graphql', 'health', 'status', 'metrics',
+            'env', 'git', 'logs', 'log', 'tmp', 'temp', 'old', 'new', 'bak',
+            'sql', 'db', 'database', 'wp-admin', 'administrator', 'phpmyadmin',
+            'phpinfo', 'actuator', 'console', 'manager', 'management', 'proxy',
+            'api/v1', 'api/v2', 'api/docs', 'swagger.json', 'openapi.json',
+            '.env', '.git', 'robots.txt', 'sitemap.xml',
+        ]
+        wl_path = '/tmp/ffuf_wordlist.txt'
+        with open(wl_path, 'w') as f:
+            f.write('\n'.join(common_words))
+
     ffuf_out = '/tmp/ffuf_out.json'
-    with open(wl_path, 'w') as f:
-        f.write('\n'.join(common_words))
-    # Remove old output
     try: os.remove(ffuf_out)
     except Exception: pass
 
@@ -336,11 +335,12 @@ def run_ffuf(target, wordlist=None):
         'ffuf', '-u', f'{url}/FUZZ',
         '-w', wl_path,
         '-mc', '200,201,204,301,302,307,401,403',
-        '-t', '20',
+        '-t', '30',
         '-timeout', '5',
         '-of', 'json', '-o', ffuf_out,
         '-noninteractive',
-    ], timeout=70)
+        '-ac',   # auto-calibrate to filter noise
+    ], timeout=90)
 
     findings = []
     try:
@@ -351,33 +351,36 @@ def run_ffuf(target, wordlist=None):
             status = result.get('status', 0)
             length = result.get('length', 0)
             full_url = result.get('url', f'{url}/{word}')
-            sev = "LOW"
+            sev = 'LOW'
             wl = word.lower()
             if any(x in wl for x in ['admin', 'config', 'backup', 'secret', '.env', 'sql',
                                        'db', '.git', 'wp-admin', 'phpmyadmin', 'keys']):
-                sev = "HIGH"
+                sev = 'HIGH'
             elif any(x in wl for x in ['api', 'swagger', 'graphql', 'actuator', 'debug',
                                          'console', 'dashboard', 'management']):
-                sev = "MEDIUM"
+                sev = 'MEDIUM'
             findings.append({
-                "type": "Directory Found",
-                "severity": sev,
-                "url": full_url,
-                "status": status,
-                "length": length,
-                "word": word,
-                "description": f"/{word} → HTTP {status} ({length} bytes)"
+                'type': 'Directory Found',
+                'severity': sev,
+                'url': full_url,
+                'status': status,
+                'length': length,
+                'word': word,
+                'description': f'/{word} → HTTP {status} ({length} bytes)'
             })
     except Exception:
-        # fallback: try to parse any stdout lines
+        # fallback: parse stdout colour-stripped lines
+        import re as _re
+        ansi_escape = _re.compile(r'\x1b\[[0-9;]*m')
         for line in (out or '').strip().splitlines():
-            line = line.strip()
-            if line and not line.startswith(':'):
-                findings.append({"type": "ffuf result", "severity": "INFO",
-                                  "description": line})
+            line = ansi_escape.sub('', line).strip()
+            # ffuf stdout lines contain the matched path and status
+            if line and '[Status:' in line:
+                findings.append({'type': 'ffuf result', 'severity': 'INFO',
+                                  'description': line})
 
-    return {"target": url, "findings": findings, "count": len(findings),
-            "raw": (out or '')[:2000]}
+    return {'target': url, 'findings': findings, 'count': len(findings),
+            'raw': (out or '')[:3000]}
 
 NUCLEI_TEMPLATES_DIR = (
     os.path.expanduser('~/.config/nuclei/templates')
@@ -865,29 +868,56 @@ def run_katana(target):
 def run_gau(target):
     """GetAllURLs - fetch known URLs from Wayback/OTX/URLScan."""
     host = clean_target(target)
-    out, err, rc = _run_cmd([
-        'gau', '--threads', '5',
-        '--timeout', '30', '--mc', '200,301,302,403',
-        '--fp',  # filter patterns
-        host
-    ], timeout=60)
     urls = []
-    for line in (out or '').strip().splitlines():
-        line = line.strip()
-        if line.startswith('http'):
-            urls.append(line)
+    raw_combined = []
+
+    # 1. Try gau (requires external internet access to Wayback/OTX/URLScan APIs)
+    out, err, rc = _run_cmd([
+        'gau', '--threads', '3',
+        '--timeout', '20',
+        '--providers', 'wayback,otx,urlscan',
+        '--fp',
+        host
+    ], timeout=50)
+    if out:
+        raw_combined.append(out)
+        for line in out.strip().splitlines():
+            line = line.strip()
+            if not line or line.startswith('time=') or line.startswith('level='):
+                continue
+            if line.startswith('http'):
+                urls.append(line)
+            elif line.startswith('/'):
+                urls.append(f'https://{host}{line}')
+            elif '/' in line and '.' in line.split('/')[0]:
+                urls.append(f'https://{line}')
+
+    # 2. Fallback: try Wayback CDX API directly via curl
+    if not urls:
+        cdx_url = (f'http://web.archive.org/cdx/search/cdx'
+                   f'?url={host}/*&output=text&fl=original&collapse=urlkey&limit=200')
+        out2, err2, rc2 = _run_cmd([
+            'curl', '-s', '--max-time', '15', cdx_url
+        ], timeout=20)
+        if out2 and 'http' in out2:
+            raw_combined.append(out2)
+            for line in out2.strip().splitlines():
+                line = line.strip()
+                if line.startswith('http'):
+                    urls.append(line)
+
     # Deduplicate and cap
     urls = sorted(set(urls))[:500]
-    # Find interesting URLs
     interesting = []
     for u in urls:
         ll = u.lower()
         if any(x in ll for x in ['.php?', '?id=', '?page=', 'redirect=', 'url=', 'path=',
                                    'admin', 'login', 'token', '.env', 'backup', 'config']):
             interesting.append(u)
-    return {"host": host, "urls": urls, "count": len(urls),
-            "interesting": interesting[:100], "interesting_count": len(interesting),
-            "raw": (out or '')[:3000]}
+    raw = '\n'.join(raw_combined)[:3000]
+    return {'host': host, 'urls': urls, 'count': len(urls),
+            'interesting': interesting[:100], 'interesting_count': len(interesting),
+            'raw': raw}
 
 def run_dalfox(target):
     """Real dalfox XSS scanner."""
@@ -1128,35 +1158,87 @@ def _parse_sqlmap_output(target_url, raw):
     }
 
 def run_amass(target):
-    """Real amass subdomain enumeration (passive mode, 60s)."""
+    """Amass passive subdomain enum with assetfinder fallback (fast, <40s)."""
     host = clean_target(target)
+    subdomains = []
+    raw_parts = []
+
+    # 1. Try amass with a short 1-minute cap; use overall timeout=40s to stay responsive
     out, err, rc = _run_cmd([
         'amass', 'enum', '-passive', '-d', host,
         '-timeout', '1',  # minutes
         '-norecursive'
-    ], timeout=90)
-    subdomains = []
-    for line in (out or '').strip().splitlines():
-        line = line.strip()
-        if line and host in line and not line.startswith('['):
-            # amass output: "sub.example.com"
-            subdomains.append(line.split()[-1] if ' ' in line else line)
+    ], timeout=40)
+    if out:
+        raw_parts.append(out)
+        for line in out.strip().splitlines():
+            line = line.strip()
+            if line and host in line and not line.startswith('['):
+                subdomains.append(line.split()[-1] if ' ' in line else line)
+
+    # 2. Always supplement with assetfinder (fast, ~3s)
+    out2, err2, rc2 = _run_cmd(['assetfinder', '--subs-only', host], timeout=20)
+    if out2:
+        raw_parts.append(out2)
+        for line in out2.strip().splitlines():
+            line = line.strip()
+            if line and host in line:
+                subdomains.append(line)
+
+    # 3. Also use subfinder as second fallback
+    out3, err3, rc3 = _run_cmd([
+        'subfinder', '-d', host, '-silent', '-timeout', '15'
+    ], timeout=30)
+    if out3:
+        raw_parts.append(out3)
+        for line in out3.strip().splitlines():
+            line = line.strip()
+            if line and host in line:
+                subdomains.append(line)
+
     subdomains = sorted(set(subdomains))
-    findings = [{"subdomain": s, "type": "Subdomain", "severity": "INFO",
-                 "description": f"Amass discovered: {s}"} for s in subdomains]
-    return {"host": host, "subdomains": subdomains, "count": len(subdomains),
-            "findings": findings, "raw": (out or '')[:2000]}
+    findings = [{'subdomain': s, 'type': 'Subdomain', 'severity': 'INFO',
+                 'description': f'Amass/assetfinder discovered: {s}'} for s in subdomains]
+    raw = '\n'.join(raw_parts)[:3000]
+    return {'host': host, 'subdomains': subdomains, 'count': len(subdomains),
+            'findings': findings, 'raw': raw}
 
 def run_waybackurls(target):
-    """Fetch archived URLs from Wayback Machine."""
+    """Fetch archived URLs from Wayback Machine (waybackurls + CDX API fallback)."""
     host = clean_target(target)
-    out, err, rc = _run_cmd(['waybackurls', host], timeout=45)
-    urls = sorted(set(l.strip() for l in (out or '').splitlines() if l.strip().startswith('http')))[:300]
+    urls = []
+    raw_combined = []
+
+    # 1. Try the waybackurls Go binary
+    out, err, rc = _run_cmd(['waybackurls', host], timeout=40)
+    if out:
+        raw_combined.append(out)
+        for line in out.strip().splitlines():
+            line = line.strip()
+            if line.startswith('http'):
+                urls.append(line)
+
+    # 2. Fallback: Wayback CDX API via curl if binary returned nothing
+    if not urls:
+        cdx_url = (f'http://web.archive.org/cdx/search/cdx'
+                   f'?url={host}/*&output=text&fl=original&collapse=urlkey&limit=300')
+        out2, err2, rc2 = _run_cmd([
+            'curl', '-s', '--max-time', '15', cdx_url
+        ], timeout=20)
+        if out2 and 'http' in out2:
+            raw_combined.append(out2)
+            for line in out2.strip().splitlines():
+                line = line.strip()
+                if line.startswith('http'):
+                    urls.append(line)
+
+    urls = sorted(set(urls))[:300]
     interesting = [u for u in urls if any(x in u.lower() for x in
                    ['?', 'admin', 'login', 'token', '.env', 'backup', 'upload', 'api', 'config'])]
-    return {"host": host, "urls": urls, "count": len(urls),
-            "interesting": interesting[:100], "interesting_count": len(interesting),
-            "raw": (out or '')[:2000]}
+    raw = '\n'.join(raw_combined)[:2000]
+    return {'host': host, 'urls': urls, 'count': len(urls),
+            'interesting': interesting[:100], 'interesting_count': len(interesting),
+            'raw': raw}
 
 def run_secretfinder(target):
     """Run SecretFinder to find API keys/secrets in JavaScript files."""

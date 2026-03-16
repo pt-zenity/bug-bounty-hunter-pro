@@ -35,3 +35,5 @@ tools/LinkFinder/
 
 # Wordlists yang besar (opsional - uncomment jika ingin exclude)
 # wordlists/raft-medium-dirs.txt
+nikto_*.txt
+*.txt.gz
