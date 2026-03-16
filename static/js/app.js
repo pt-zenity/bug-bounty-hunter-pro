@@ -1342,64 +1342,174 @@ async function runTool(tool) {
     }
 }
 
-async function runNuclei() {
-    const targetEl   = document.getElementById('nucleiTarget');
-    const sevEl      = document.getElementById('nucleiSeverity');
-    const modeEl     = document.getElementById('nucleiMode');
-    const catEl      = document.getElementById('nucleiCategory');
-    const tagsEl     = document.getElementById('nucleiTags');
-    const customEl   = document.getElementById('nucleiCustomTemplates');
-    const resultCard = document.getElementById('nucleiResult');
-    const resultContent = document.getElementById('nucleiResultContent');
-    const rawCard    = document.getElementById('nucleiRawCard');
+// ─── Nuclei Live SSE Scanner ──────────────────────────────────────────────────
+let _nucleiAbortCtrl = null;
+let _nucleiRunning   = false;
 
-    if (!targetEl) return;
-    const target   = targetEl.value.trim();
-    const severity = sevEl ? sevEl.value : 'medium,high,critical';
-    const mode     = modeEl ? modeEl.value : 'default';
+function stopNuclei() {
+    if (_nucleiAbortCtrl) _nucleiAbortCtrl.abort();
+    _nucleiRunning = false;
+    const runBtn  = document.getElementById('nucleiRunBtn');
+    const stopBtn = document.getElementById('nucleiStopBtn');
+    const spinner = document.getElementById('nucleiSpinner');
+    const status  = document.getElementById('nucleiStatus');
+    if (runBtn)  runBtn.style.display  = '';
+    if (stopBtn) stopBtn.style.display = 'none';
+    if (spinner) spinner.style.display = 'none';
+    if (status)  status.textContent    = 'Scan stopped.';
+}
+
+async function runNuclei() {
+    if (_nucleiRunning) { showToast('Nuclei scan already running', 'warning'); return; }
+
+    const target    = (document.getElementById('nucleiTarget')           ?.value || '').trim();
+    const severity  = (document.getElementById('nucleiSeverity')         ?.value || 'medium,high,critical');
+    const mode      = (document.getElementById('nucleiMode')             ?.value || 'default');
+    const category  = (document.getElementById('nucleiCategory')         ?.value || '').trim();
+    const tags      = (document.getElementById('nucleiTags')             ?.value || '').trim();
+    const custom    = (document.getElementById('nucleiCustomTemplates')  ?.value || '').trim();
+
     if (!target) { showToast('Please enter a target URL', 'error'); return; }
 
-    const payload = { target, severity };
-    let scanLabel = 'Default (7 categories)';
+    _nucleiRunning   = true;
+    _nucleiAbortCtrl = new AbortController();
 
-    if (mode === 'category' && catEl) {
-        payload.category = catEl.value;
-        scanLabel = 'Category: ' + catEl.options[catEl.selectedIndex].text;
-    } else if (mode === 'tags' && tagsEl && tagsEl.value.trim()) {
-        payload.tags = tagsEl.value.trim();
-        scanLabel = 'Tags: ' + tagsEl.value.trim();
-    } else if (mode === 'custom' && customEl && customEl.value.trim()) {
-        payload.templates = customEl.value.trim();
-        scanLabel = 'Custom: ' + customEl.value.trim();
+    const runBtn        = document.getElementById('nucleiRunBtn');
+    const stopBtn       = document.getElementById('nucleiStopBtn');
+    const consoleCard   = document.getElementById('nucleiConsoleCard');
+    const consoleEl     = document.getElementById('nucleiConsole');
+    const spinner       = document.getElementById('nucleiSpinner');
+    const statusEl      = document.getElementById('nucleiStatus');
+    const findingCount  = document.getElementById('nucleiFindingCount');
+    const resultCard    = document.getElementById('nucleiResult');
+    const resultContent = document.getElementById('nucleiResultContent');
+    const rawCard       = document.getElementById('nucleiRawCard');
+
+    if (runBtn)       runBtn.style.display       = 'none';
+    if (stopBtn)      stopBtn.style.display      = '';
+    if (consoleCard)  consoleCard.style.display  = '';
+    if (resultCard)   resultCard.style.display   = 'none';
+    if (rawCard)      rawCard.style.display      = 'none';
+    if (spinner)      spinner.style.display      = '';
+    if (statusEl)     statusEl.textContent       = 'Initializing nuclei…';
+    if (findingCount) findingCount.style.display = 'none';
+    if (consoleEl)    consoleEl.innerHTML        = '';
+
+    // colour map
+    const lineColors = {
+        critical: '#f87171',
+        high:     '#f97316',
+        medium:   '#f59e0b',
+        low:      '#fcd34d',
+        info:     '#94a3b8',
+        warning:  '#fcd34d',
+        error:    '#fc8181',
+        finding:  '#34d399',
+        log:      '#6b7280',
+    };
+
+    let lineCount   = 0;
+    let findingsCnt = 0;
+    const liveFindings = [];
+
+    function appendLine(text, type) {
+        if (!consoleEl) return;
+        const color = lineColors[type] || lineColors.log;
+        const div   = document.createElement('div');
+        div.style.cssText = `color:${color};word-break:break-all;margin-bottom:2px`;
+        div.textContent   = text;
+        consoleEl.appendChild(div);
+        lineCount++;
+        consoleEl.scrollTop = consoleEl.scrollHeight;
+        if (statusEl) statusEl.textContent = `Lines: ${lineCount} | Findings: ${findingsCnt}`;
     }
 
-    showLoading(`Running Nuclei scan [${scanLabel}]… this may take 2–3 minutes`);
-    if (resultCard) resultCard.style.display = 'none';
-    if (rawCard) rawCard.style.display = 'none';
+    const payload = { target, severity };
+    if (mode === 'category' && category) payload.category = category;
+    else if (mode === 'tags' && tags)    payload.tags     = tags;
+    else if (mode === 'custom' && custom) payload.templates = custom;
 
     try {
-        const resp = await fetch(`${API_BASE}/tools/nuclei`, {
-            method: 'POST',
+        const resp = await fetch(`${API_BASE}/tools/nuclei/stream`, {
+            method:  'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
+            body:    JSON.stringify(payload),
+            signal:  _nucleiAbortCtrl.signal,
         });
-        const data = await resp.json();
-        hideLoading();
-        if (resultCard) resultCard.style.display = 'block';
-        renderNucleiResults(resultContent, data);
-        // Render severity badges in header
-        renderNucleiSeverityBadges(data);
-        // Show raw output
-        if (data.raw) {
-            if (rawCard) rawCard.style.display = 'block';
-            const pre = document.getElementById('nucleiRawPre');
-            if (pre) pre.textContent = data.raw;
+
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
+
+        const reader  = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let   buffer  = '';
+
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const parts = buffer.split('\n\n');
+            buffer = parts.pop();
+
+            for (const part of parts) {
+                const line = part.replace(/^data:\s*/, '').trim();
+                if (!line) continue;
+                let msg;
+                try { msg = JSON.parse(line); } catch { continue; }
+
+                if (msg.type === 'done') {
+                    if (spinner) spinner.style.display = 'none';
+                    if (statusEl) statusEl.textContent = `Complete — ${lineCount} lines | ${findingsCnt} findings`;
+                    appendLine('─── SCAN COMPLETE ───', 'finding');
+
+                } else if (msg.type === 'result') {
+                    // Final structured result
+                    if (resultCard) resultCard.style.display = '';
+                    const data = msg.data;
+                    // Merge live findings into result if backend missed them
+                    if (liveFindings.length > 0 && (!data.findings || data.findings.length === 0)) {
+                        data.findings = liveFindings;
+                        data.count    = liveFindings.length;
+                    }
+                    renderNucleiResults(resultContent, data);
+                    renderNucleiSeverityBadges(data);
+                    if (data.raw) {
+                        if (rawCard) rawCard.style.display = '';
+                        const pre = document.getElementById('nucleiRawPre');
+                        if (pre) pre.textContent = data.raw;
+                    }
+
+                } else if (msg.type === 'finding') {
+                    // Live individual finding
+                    findingsCnt++;
+                    liveFindings.push(msg.data);
+                    if (findingCount) {
+                        findingCount.style.display = '';
+                        findingCount.textContent   = `⚡ ${findingsCnt} finding(s)`;
+                    }
+                    const sev   = (msg.data.severity || 'INFO').toLowerCase();
+                    const tpl   = msg.data.template  || 'nuclei';
+                    const url2  = msg.data.url        || msg.data.affected || '';
+                    appendLine(`[${sev.toUpperCase()}] ${tpl} → ${url2}`, sev);
+
+                } else {
+                    appendLine(msg.line || '', msg.type || 'log');
+                }
+            }
         }
+
     } catch(err) {
-        hideLoading();
-        showToast('Nuclei error: ' + err.message, 'error');
-        if (resultCard) resultCard.style.display = 'block';
-        if (resultContent) resultContent.innerHTML = `<div class="empty-state"><p>Error: ${escapeHtml(err.message)}</p></div>`;
+        if (err.name === 'AbortError') {
+            appendLine('⚠ Scan aborted by user.', 'warning');
+        } else {
+            appendLine(`Error: ${err.message}`, 'error');
+            showToast('Nuclei error: ' + err.message, 'error');
+        }
+    } finally {
+        _nucleiRunning   = false;
+        _nucleiAbortCtrl = null;
+        if (runBtn)  runBtn.style.display  = '';
+        if (stopBtn) stopBtn.style.display = 'none';
+        if (spinner) spinner.style.display = 'none';
     }
 }
 

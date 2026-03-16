@@ -379,7 +379,11 @@ def run_ffuf(target, wordlist=None):
     return {"target": url, "findings": findings, "count": len(findings),
             "raw": (out or '')[:2000]}
 
-NUCLEI_TEMPLATES_DIR = os.path.expanduser('~/.config/nuclei/templates')
+NUCLEI_TEMPLATES_DIR = (
+    os.path.expanduser('~/.config/nuclei/templates')
+    if os.path.isdir(os.path.expanduser('~/.config/nuclei/templates'))
+    else os.path.expanduser('~/nuclei-templates')
+)
 
 # ─── Full Nuclei Template Category Map ───────────────────────────────────────
 NUCLEI_CATEGORIES = {
@@ -557,7 +561,7 @@ NUCLEI_SEVERITY_PRESETS = {
 }
 
 def _parse_nuclei_output(raw, url):
-    """Parse nuclei JSON output into structured findings list."""
+    """Parse nuclei JSONL output into structured findings list."""
     findings = []
     sev_map = {
         'critical': 'CRITICAL', 'high': 'HIGH', 'medium': 'MEDIUM',
@@ -565,7 +569,8 @@ def _parse_nuclei_output(raw, url):
     }
     for line in raw.splitlines():
         line = line.strip()
-        if not line or line.startswith('['):
+        # Skip empty lines and plain log lines (not JSON)
+        if not line or not line.startswith('{'):
             continue
         try:
             item = json.loads(line)
@@ -618,14 +623,17 @@ def run_nuclei(target, severity='medium,high,critical', category=None,
     url = base_url(target)
     cmd = [
         'nuclei', '-u', url,
-        '-severity', severity,
-        '-rl', '15',       # rate limit
-        '-c', '15',        # concurrency
-        '-timeout', '8',
-        '-duc',            # disable update check
-        '-silent',
-        '-j',              # JSON output
-        '-no-color',
+        '-s', severity,          # severity filter (-s is short for -severity)
+        '-rl', '15',             # rate limit req/s
+        '-c', '15',              # concurrency (templates in parallel)
+        '-bs', '10',             # bulk-size (hosts per template)
+        '-timeout', '8',         # per-request timeout seconds
+        '-duc',                  # disable update check
+        '-nc',                   # no colour ANSI codes
+        '-j',                    # JSONL output (-j = -jsonl in v3.x)
+        '-nm',                   # no-meta (cleaner output)
+        '-mhe', '5',             # max host errors before skip
+        '-no-interactsh',        # disable OOB interactions (faster, no network deps)
     ]
 
     # Template selection priority: category > templates > tags > default
@@ -3425,6 +3433,164 @@ def tool_nuclei_category():
     if not raw:      return jsonify({"error":"Target required"}), 400
     if not category: return jsonify({"error":"Category required"}), 400
     return jsonify(nuclei_scan_category(raw, category))
+
+@app.route('/api/tools/nuclei/stream', methods=['POST'])
+def tool_nuclei_stream():
+    """
+    SSE endpoint: streams nuclei output line-by-line in real time.
+    Client receives:
+      data: {"type":"log","line":"..."}
+      data: {"type":"finding","data":{...}}
+      data: {"type":"result","data":{...}}
+      data: {"type":"done"}
+    """
+    data      = request.json or {}
+    raw       = data.get('target','').strip()
+    sev       = data.get('severity', 'medium,high,critical')
+    category  = data.get('category', None)
+    tags      = data.get('tags', None)
+    templates = data.get('templates', None)
+
+    if not raw:
+        return jsonify({"error": "Target required"}), 400
+
+    url = base_url(raw)
+
+    cmd = [
+        'nuclei', '-u', url,
+        '-s', sev,
+        '-rl', '15',
+        '-c', '15',
+        '-bs', '10',
+        '-timeout', '8',
+        '-duc',
+        '-nc',
+        '-j',
+        '-nm',
+        '-mhe', '5',
+        '-no-interactsh',
+    ]
+
+    # Template selection
+    if category and category in NUCLEI_CATEGORIES:
+        cat = NUCLEI_CATEGORIES[category]
+        tpl_path = os.path.join(NUCLEI_TEMPLATES_DIR, cat['path'])
+        cmd += ['-t', tpl_path] if os.path.isdir(tpl_path) else ['-tags', ','.join(cat['tags'])]
+    elif templates:
+        tpl_list = [t.strip() for t in templates.split(',') if t.strip()]
+        resolved = []
+        for t in tpl_list:
+            fp = os.path.join(NUCLEI_TEMPLATES_DIR, t)
+            resolved.append(fp if (os.path.isdir(fp) or os.path.isfile(fp)) else t)
+        cmd += ['-t', ','.join(resolved)]
+    elif tags:
+        cmd += ['-tags', tags]
+    else:
+        default_dirs = [
+            os.path.join(NUCLEI_TEMPLATES_DIR, d) for d in [
+                'http/cves', 'http/misconfiguration', 'http/exposed-panels',
+                'http/takeovers', 'http/default-logins', 'http/vulnerabilities',
+                'http/exposures',
+            ]
+        ]
+        existing = [d for d in default_dirs if os.path.isdir(d)]
+        if existing:
+            cmd += ['-t', ','.join(existing)]
+
+    def _classify(line):
+        ll = line.lower()
+        # JSONL finding lines start with {
+        if line.startswith('{'):
+            return 'finding'
+        if any(x in ll for x in ['[critical]', 'critical']):   return 'critical'
+        if any(x in ll for x in ['[high]', 'high']):           return 'high'
+        if any(x in ll for x in ['[medium]', 'medium']):       return 'medium'
+        if any(x in ll for x in ['[low]']):                    return 'low'
+        if any(x in ll for x in ['[inf]', '[info]', 'templates loaded', 'using', 'targets']):
+            return 'info'
+        if any(x in ll for x in ['[wrn]', '[warn]', 'warning']): return 'warning'
+        if any(x in ll for x in ['[err]', '[error]', 'error']):  return 'error'
+        return 'log'
+
+    def generate():
+        full_output = []
+        env = dict(os.environ)
+        env['HOME']  = '/home/user'
+        env['PATH']  = '/usr/local/bin:/usr/bin:/bin:/home/user/go/bin:' + env.get('PATH', '')
+
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                env=env
+            )
+
+            sev_map = {
+                'critical': 'CRITICAL', 'high': 'HIGH', 'medium': 'MEDIUM',
+                'low': 'LOW', 'info': 'INFO', 'unknown': 'INFO'
+            }
+
+            for line in proc.stdout:
+                line = line.rstrip('\n')
+                if not line.strip():
+                    continue
+                full_output.append(line)
+                kind = _classify(line)
+
+                if kind == 'finding':
+                    # Parse and emit structured finding
+                    try:
+                        item = json.loads(line)
+                        info = item.get('info', {})
+                        sev_raw = info.get('severity', 'info').lower()
+                        sev_val = sev_map.get(sev_raw, 'INFO')
+                        classification = info.get('classification', {})
+                        finding = {
+                            "type":        info.get('name', 'Nuclei Finding'),
+                            "severity":    sev_val,
+                            "description": info.get('description', info.get('name', '')),
+                            "source":      "nuclei",
+                            "template":    item.get('template-id', ''),
+                            "template_path": item.get('template-path', ''),
+                            "affected":    item.get('matched-at', item.get('host', url)),
+                            "url":         item.get('matched-at', ''),
+                            "tags":        info.get('tags', []),
+                            "references":  info.get('reference', []),
+                            "remediation": info.get('remediation', ''),
+                            "cvss_score":  str(classification.get('cvss-score', '')),
+                            "cve_id":      classification.get('cve-id', []),
+                            "timestamp":   item.get('timestamp', ''),
+                            "matcher_name": item.get('matcher-name', ''),
+                            "extracted_results": item.get('extracted-results', []),
+                        }
+                        yield f"data: {json.dumps({'type':'finding','data':finding})}\n\n"
+                    except Exception:
+                        yield f"data: {json.dumps({'type':'log','line':line})}\n\n"
+                else:
+                    yield f"data: {json.dumps({'type': kind, 'line': line})}\n\n"
+
+            proc.wait()
+
+        except Exception as e:
+            yield f"data: {json.dumps({'type':'error','line':str(e)})}\n\n"
+
+        # Final structured result
+        result = _parse_nuclei_output('\n'.join(full_output), url)
+        yield f"data: {json.dumps({'type':'result','data':result})}\n\n"
+        yield f"data: {json.dumps({'type':'done'})}\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control':     'no-cache',
+            'X-Accel-Buffering': 'no',
+            'Access-Control-Allow-Origin': '*',
+        }
+    )
 
 @app.route('/api/tools/nuclei/templates/stats', methods=['GET'])
 def nuclei_template_stats():
